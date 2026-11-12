@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"math"
 	"net/http"
@@ -62,18 +63,14 @@ const defaultCloseFrameTimeout = time.Second
 // frame payload is at most 125 bytes, two of them the code.
 const maxCloseReasonBytes = 123
 
-// closeFrameFor returns the close frame a cancel cause asks for, or nil when
-// the cause names no sendable close code.
-func closeFrameFor(cause error) []byte {
+// causeClose returns the close code and reason a cancel cause asks for; ok is
+// false when the cause names no sendable close code.
+func causeClose(cause error) (code int, reason string, ok bool) {
 	var cc interface{ CloseCode() (int, string) }
 	if !errors.As(cause, &cc) {
-		return nil
+		return 0, "", false
 	}
-	code, reason, ok := sendableClose(cc.CloseCode())
-	if !ok {
-		return nil
-	}
-	return gws.FormatCloseMessage(code, reason)
+	return sendableClose(cc.CloseCode())
 }
 
 // sendableClose returns the code and reason a close frame carries for code
@@ -281,6 +278,25 @@ type PersistenceAdapterContext interface {
 	// adapter should respect cancellation (e.g., abort the network call or
 	// DB transaction) and return ctx.Err() when ctx is done.
 	StoreUpdateContext(ctx context.Context, room string, update []byte) error
+}
+
+// PersistenceAdapterLoadContext is an optional extension to PersistenceAdapter.
+// When the adapter implements it, the server loads a room with LoadDocContext
+// instead of LoadDoc, and passes the context of the call that created the
+// room: the request context of a peer's connection (ServeHTTP), or the ctx
+// given to Apply or Inject. The adapter sees that caller's values, deadline
+// and cancellation, so it can, for example, bound a wait in the load by the
+// caller's deadline. Adapters that implement only PersistenceAdapter are
+// loaded with LoadDoc, as before.
+//
+// One load serves every caller that waits for the room. An error the adapter
+// returns, ctx.Err() included, fails the load for all of them, and the next
+// call for the room loads it again.
+type PersistenceAdapterLoadContext interface {
+	// LoadDocContext is LoadDoc with the context of the call that created
+	// the room. ctx is never nil: a nil context loads with
+	// context.Background().
+	LoadDocContext(ctx context.Context, room string) ([]byte, error)
 }
 
 // CompactableAdapter is an optional extension to PersistenceAdapter. When the
@@ -671,6 +687,10 @@ type room struct {
 	doc       *crdt.Doc
 	awareness *awareness.Awareness
 	peers     map[*peer]struct{}
+	// stores is, under Server.AnswerOnceStored, this room instance's record
+	// of the stores of its commits, which the peers' answers wait for
+	// (armStore, noteStored).
+	stores roomStores
 
 	// ready is closed exactly once, by the goroutine that created the room, when
 	// the off-lock load (LoadDoc + decode + OnLoadDocument) has finished — whether
@@ -1002,21 +1022,88 @@ type Server struct {
 	// connection; when the hook refused it, the peer is then closed, with the
 	// code of a *PeerClose the hook's error is or wraps and with 4205 "Reset
 	// Connection" otherwise. An update apply applied is broadcast and answered
-	// SyncStatus(1) whatever the hook returns. A read-only peer's update never
-	// reaches the hook. Nil keeps the behaviour without a hook. See
-	// PeerUpdateHook.
+	// as without a hook whatever the hook returns: SyncStatus(1), unless
+	// AnswerParkedNotApplied answers 0 for it, and relayed as
+	// RelayIntegratedOnly says. A read-only peer's update never reaches the
+	// hook. Nil keeps the behaviour without a hook. See PeerUpdateHook.
 	OnPeerUpdate PeerUpdateHook
+
+	// RelayIntegratedOnly, when true, relays a peer's update to the room's
+	// other peers as what its apply integrated - the commit's own update,
+	// the bytes the room's OnUpdate observers are handed
+	// (crdt.ApplyOutcome.Integrated) - instead of the sync message the peer
+	// sent. So a frame whose structs park in the room's pending queue,
+	// waiting for a struct the room lacks, is relayed without them, or not
+	// at all when nothing of it integrated, and the commit that lands them,
+	// the apply of the frame that fills their gap, relays them with that
+	// frame's own, to that frame's sender as well (crdt.ApplyOutcome.Drained),
+	// since no peer was sent what waited in the queue; a frame the room
+	// already held relays nothing, as without the option; and a frame whose
+	// apply fails partway relays what it integrated, without what it parked.
+	// It applies to the SyncStep2 and Update frames peers send, not to
+	// updates the cluster relay delivers.
+	// It is off by default: the room relays the sync message the peer sent,
+	// parked content included, so the other peers park it as the room does.
+	RelayIntegratedOnly bool
+
+	// AnswerParkedNotApplied, when true, answers SyncStatus(0) for a peer's
+	// update the room applied but left part of parked: a struct of the update,
+	// or a clock it deletes, that waits in the room's pending queue for a
+	// struct the room lacks, or that a drain of the queue the room took back
+	// did not land (crdt.ApplyOutcome.Parked). What did integrate stands and
+	// is relayed. A client that keeps an edit until it is answered applied
+	// sends it again, and once the room holds it the room answers 1. It
+	// changes only the answer, which a connection using Hocuspocus framing is
+	// sent. It is off by default: the room answers 1 for every update it
+	// applied, parked content included, as @hocuspocus/server does.
+	AnswerParkedNotApplied bool
+
+	// AnswerOnceStored, when true on a server with persistence, holds the
+	// SyncStatus a peer is answered for an update until the room's
+	// persistence has stored the commit that update made, and answers 0 when
+	// it was not stored: the adapter call that took it failed, or a
+	// PersistenceAdapterStored adapter says it dropped it. So a client that
+	// keeps an edit until it is answered applied keeps it until it is stored,
+	// and sends it again after a store that failed. An update whose apply
+	// changed nothing - a SyncStep2 or a resend of what the room holds,
+	// perhaps only because another peer's commit put it there - waits for
+	// the newest store of the room still running, whoever's commit it
+	// stores, and takes its verdict; so does a read-only peer's SyncStep2
+	// the room holds. Once a commit of the room instance was not stored,
+	// every answer the instance sends is 0, a later commit that stored
+	// included, as the room holds content no store holds; a room loaded
+	// again starts clean. Only the answer waits: the update is relayed to
+	// the room's other peers as soon as it integrates, as without the
+	// option. Each peer's answers still go out in the order its frames
+	// arrived, and the close of a peer whose update the OnPeerUpdate hook
+	// refused, or that ClosePeer closes, goes out after the answers before
+	// it. The answer to a coalesced write (PersistCoalesceWindow) waits for
+	// the write that stores its batch, and a coalesced batch whose write
+	// failed counts as not stored though a retry may store it later. It is
+	// off by default: a peer is answered as soon as the room applies its
+	// update.
+	AnswerOnceStored bool
+
+	// ReadOnlySyncStep2MaxBytes, when positive, answers SyncStatus(0),
+	// without decoding it, a SyncStep2 a read-only peer sends under Sync or
+	// SyncReply whose update is longer than this many bytes. Deciding the
+	// answer to a read-only peer's SyncStep2 (1 when the room holds all of
+	// it) decodes the whole update into a scratch document, outside any
+	// bound an OnPeerUpdate hook sets, as the hook never sees a read-only
+	// peer's update; this caps what such a decode may take. A client that
+	// keeps rows until a SyncStep2 is answered 1 keeps them, and drops them
+	// by its own reading of the document. 0, the default, decodes every one.
+	ReadOnlySyncStep2MaxBytes int
 
 	// OnStateAnswer, if non-nil, runs immediately before the room answers a
 	// peer's SyncStep1 with the room's whole state, and its release runs
-	// once that answer has been handed to the peer's writer. Answering
-	// decodes the room's state into a merge store before it cuts it into
-	// frames, so the answer costs the server memory in proportion to what
-	// the room holds and not to the frame it arrived in; this is where an
-	// owner weighs that cost, admits the answer, or refuses it and closes
-	// the peer. A refusal sends no answer. Nil keeps the behaviour without
-	// a hook exactly: the room answers every SyncStep1. See
-	// StateAnswerHook.
+	// once that answer has been handed to the peer's writer. The answer
+	// holds every frame of the room's state at once, so it costs the server
+	// memory in proportion to what the room holds and not to the frame it
+	// arrived in; this is where an owner weighs that cost, admits the
+	// answer, or refuses it and closes the peer. A refusal sends no answer.
+	// Nil keeps the behaviour without a hook exactly: the room answers every
+	// SyncStep1. See StateAnswerHook.
 	OnStateAnswer StateAnswerHook
 
 	// OnTokenAuth, if non-nil, validates the token from a Hocuspocus in-band
@@ -1121,6 +1208,21 @@ type Server struct {
 	// Lower this for stricter limits in untrusted multi-tenant deployments;
 	// raise it for unusual bulk-sync workloads.
 	MaxMessageBytes int64
+
+	// ReadOnlySyncStep2MaxValues, when positive, bounds the decode that
+	// answers a SyncStep2 a read-only peer sends on a connection using
+	// Hocuspocus framing. The answer is SyncStatus(1) when the room already
+	// holds all of the step's update, and deciding it decodes the whole
+	// update into a scratch document, which no apply budget reaches
+	// (crdt.WithApplyBudget), since nothing is applied. With this set, that
+	// decode stops past this many values, counted as crdt.ApplyBudget.Decoded
+	// counts an apply's, before the value past it is built
+	// (crdt.DocContainsUpdateV1Limit), and the step is answered
+	// SyncStatus(0), as one whose update does not decode is. Set it to the
+	// value limit of the room's applies, so that answering a read-only peer
+	// costs no more than applying a peer's update. 0, the default, bounds
+	// nothing.
+	ReadOnlySyncStep2MaxValues int
 
 	// MessageRateLimit caps the sustained inbound-message rate (messages per
 	// second) for each peer. Zero (the default) means unlimited, preserving
@@ -1323,8 +1425,12 @@ type Server struct {
 	mergeFn func(...[]byte) ([]byte, error)
 
 	// MaxPendingItems caps each document's parked items and, separately, parked
-	// delete ranges (crdt.WithMaxPendingItems).
+	// delete ranges unless MaxPendingDeleteRanges is set (crdt.WithMaxPendingItems).
 	MaxPendingItems int
+	// MaxPendingDeleteRanges, when positive, caps each document's parked delete
+	// ranges apart from MaxPendingItems (crdt.WithMaxPendingDeleteRanges); it
+	// applies once the room's stored state has loaded, as MaxPendingItems does.
+	MaxPendingDeleteRanges int
 
 	// HandshakeTimeout caps how long a peer may stay connected without sending
 	// any message after the WebSocket upgrade completes. This is the first-line
@@ -1820,6 +1926,10 @@ func (s *Server) GetDoc(name string) *crdt.Doc {
 // with s.rmu released, so one slow or large load never stalls create / lookup /
 // evict for every other room process-wide.
 //
+// The load runs under ctx, the context of the caller that creates the room:
+// the OnLoadDocument hook receives it, and so does an adapter that implements
+// PersistenceAdapterLoadContext. A nil ctx is context.Background().
+//
 // The creating goroutine (created==true) performs the load and closes r.ready;
 // every other caller — including a caller for the same still-loading room —
 // waits on r.ready rather than on s.rmu. On load failure the placeholder has
@@ -1832,6 +1942,9 @@ func (s *Server) GetDoc(name string) *crdt.Doc {
 // call finds the room and returns off an already-closed barrier instead of
 // self-deadlocking on the non-reentrant s.rmu.
 func (s *Server) getOrCreateRoom(ctx context.Context, name string) (*room, bool, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	r, created, err := s.createRoomPlaceholder(name)
 	if err != nil {
 		return nil, false, err
@@ -1980,9 +2093,10 @@ func (s *Server) releaseInflight(rm *room) {
 // room parks on <-r.ready forever — a permanent goroutine/connection/MaxRooms
 // leak that administrative CloseRoom cannot even clear (#182 follow-up).
 func (s *Server) loadRoom(ctx context.Context, r *room, name string) {
-	loadErr := s.loadRoomDoc(r, name)
+	loadErr := s.loadRoomDoc(ctx, r, name)
 	// Cap only after the stored state is in, since it can hold more than the cap.
 	r.doc.SetMaxPendingItems(s.MaxPendingItems)
+	r.doc.SetMaxPendingDeleteRanges(s.MaxPendingDeleteRanges)
 	// #60 — fire OnLoadDocument AFTER persistence bootstrap but BEFORE the
 	// persistence worker starts, so a hook returning an error fails room creation
 	// cleanly. Runs off-lock now (#182), so a slow hook no longer stalls other
@@ -2016,7 +2130,10 @@ func (s *Server) loadRoom(ctx context.Context, r *room, name string) {
 		r.persistRetire = make(chan struct{})
 		r.flushReq = make(chan chan bool)
 		s.startPersistenceWorker(r, name)
-		r.doc.OnUpdate(func(update []byte, _ any) {
+		r.doc.OnUpdate(func(update []byte, origin any) {
+			// Every commit is a store the answers wait for
+			// (AnswerOnceStored), from before the worker can store it.
+			s.armStore(r, update)
 			// #229 — handing the update to persistCh is only safe while the
 			// worker is still reading it. The worker publishes its retirement
 			// by closing persistRetire BEFORE its final drain, which gives this
@@ -2072,15 +2189,16 @@ func (s *Server) loadRoom(ctx context.Context, r *room, name string) {
 	close(r.ready)
 }
 
-// loadRoomDoc performs the persistence LoadDoc call and, if data was returned,
-// the full-state V1 decode into r.doc. A panic raised by either — a
-// buggy/malicious PersistenceAdapter, or a decode panic on malformed/corrupt
-// persisted bytes — is recovered and converted into the returned error rather
-// than propagating up through loadRoom. This must NOT re-panic: the caller
-// (the goroutine that published the placeholder into s.rooms) has to reach
-// failRoomLoad/close(r.ready) so waiters wake with an error instead of
-// parking on r.ready forever (#182 follow-up).
-func (s *Server) loadRoomDoc(r *room, name string) (loadErr error) {
+// loadRoomDoc performs the persistence load (LoadDocContext with ctx when the
+// adapter implements PersistenceAdapterLoadContext, LoadDoc otherwise) and, if
+// data was returned, the full-state V1 decode into r.doc. A panic raised by
+// either — a buggy/malicious PersistenceAdapter, or a decode panic on
+// malformed/corrupt persisted bytes — is recovered and converted into the
+// returned error rather than propagating up through loadRoom. This must NOT
+// re-panic: the caller (the goroutine that published the placeholder into
+// s.rooms) has to reach failRoomLoad/close(r.ready) so waiters wake with an
+// error instead of parking on r.ready forever (#182 follow-up).
+func (s *Server) loadRoomDoc(ctx context.Context, r *room, name string) (loadErr error) {
 	if s.persistence == nil {
 		return nil
 	}
@@ -2089,7 +2207,13 @@ func (s *Server) loadRoomDoc(r *room, name string) (loadErr error) {
 			loadErr = fmt.Errorf("LoadDoc panic for room %q: %v", name, rv)
 		}
 	}()
-	data, err := s.persistence.LoadDoc(name)
+	var data []byte
+	var err error
+	if lc, ok := s.persistence.(PersistenceAdapterLoadContext); ok {
+		data, err = lc.LoadDocContext(ctx, name)
+	} else {
+		data, err = s.persistence.LoadDoc(name)
+	}
 	switch {
 	case err != nil:
 		return fmt.Errorf("loading room %q: %w", name, err)
@@ -2128,7 +2252,10 @@ func (s *Server) failRoomLoad(r *room, name string, loadErr error) {
 // CloseCode() (int, string), directly or wrapped, ServeHTTP first sends the
 // peer a close frame with that code and reason, so an embedder can end one
 // session with an application close code (4000–4999) such as "session
-// revoked". Only 1000 and 3000–4999 are sent; the reason is truncated to 123
+// revoked", and waits up to five seconds for the peer's own close frame
+// before it closes the socket (RFC 6455's closing handshake), since a socket
+// closed while the peer is still sending is reset and the peer then loses the
+// frame. Only 1000 and 3000–4999 are sent; the reason is truncated to 123
 // bytes and invalid UTF-8 is dropped from it. The peer's input is ignored from
 // the cancel on. Any other cause, or an unsendable code, closes the socket
 // without a close frame, as before.
@@ -2294,9 +2421,17 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// point, a TOCTOU loss returned without cleanup, leaking runWriter (#33).
 	go p.runWriter()
 
+	// answered is whether the read loop ended on the peer's close frame, which
+	// completes a closing handshake the server began.
+	answered := false
 	defer func() {
 		close(p.done) // H1: unblock the context-watcher goroutine
 		p.handleDisconnect()
+		if p.closeSent.Load() && !answered {
+			// The peer may still be reading what came before the close frame.
+			p.lingerClose()
+			return
+		}
 		_ = ws.Close() // close errors during teardown are expected; not logged
 	}()
 
@@ -2307,12 +2442,11 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	go func() {
 		select {
 		case <-ctx.Done():
-			// A cause naming a close code is sent to the peer before the socket
-			// closes. The read loop drops input meanwhile, since WriteControl can
-			// wait on a writer stuck on a peer that has stopped reading.
-			if frame := closeFrameFor(context.Cause(ctx)); frame != nil {
-				p.inputClosed.Store(true)
-				_ = ws.WriteControl(gws.CloseMessage, frame, time.Now().Add(s.closeFrameTimeout()))
+			// A cause naming a close code is sent to the peer, with the closing
+			// handshake, and the read loop's teardown then ends the connection
+			// (closeForCause).
+			if code, reason, ok := causeClose(context.Cause(ctx)); ok && p.closeForCause(code, reason) {
+				return
 			}
 			p.closeConn()
 		case <-s.shutdownCh:
@@ -2347,14 +2481,27 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	firstMessage := true
 	for {
-		_, data, err := ws.ReadMessage()
+		_, msg, err := ws.NextReader()
 		if err != nil {
+			var closed *gws.CloseError
+			answered = errors.As(err, &closed)
 			break
 		}
 		if p.inputClosed.Load() {
-			// Continue, not break, so the deferred teardown neither drops the
-			// queued close frame nor races the one being sent.
+			// The peer's input is dropped from a close on, as it is read,
+			// through io.Discard's small pooled buffer: until the peer's close
+			// frame ends the loop, a peer could otherwise make the server hold
+			// a frame as large as MaxMessageBytes for nothing. Continue, not
+			// break, so the deferred teardown neither drops the queued close
+			// frame nor races the one being sent.
+			if _, err := io.Copy(io.Discard, msg); err != nil {
+				break
+			}
 			continue
+		}
+		data, err := io.ReadAll(msg)
+		if err != nil {
+			break
 		}
 		if firstMessage {
 			// Clear the handshake deadline; subsequent reads can take as long
