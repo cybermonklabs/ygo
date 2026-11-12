@@ -274,8 +274,10 @@ func (s *Server) broadcastUpdate(ctx context.Context, room string, update []byte
 // fn returns. The doc state will drift from live peers in the same
 // way an unapplied BroadcastUpdate does.
 //
-// ctx bounds the wait for an existing room's load.
-// It does not interrupt a new room's persistence load or a running callback.
+// ctx bounds the wait for an existing room's load. When Apply creates the
+// room, an adapter that implements PersistenceAdapterLoadContext loads it with
+// ctx and can stop that load when ctx is done. ctx does not interrupt a load
+// through LoadDoc or a running callback.
 // Once fn commits, persistence and broadcast complete even if ctx is cancelled.
 //
 // IMPORTANT: if fn calls doc.Transact directly (bypassing the supplied

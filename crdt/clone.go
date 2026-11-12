@@ -131,6 +131,9 @@ package crdt
 // delete set; their encodings differ in the collected content alone. With no
 // UndoManager attached - every other document - the source has collected it
 // already and clone and copy are byte-identical.
+//
+// The clone keeps d's SetParkedOutOfState setting, so it encodes as d does;
+// it holds d's parked structs and deletions either way.
 func (d *Doc) Clone(opts ...DocOption) *Doc {
 	nd := New(opts...)
 	d.mu.RLock()
@@ -141,6 +144,7 @@ func (d *Doc) Clone(opts ...DocOption) *Doc {
 		types: make(map[*abstractType]*abstractType, len(d.share)),
 	}
 	c.run()
+	nd.store.parkedOutOfState = d.store.parkedOutOfState
 	if nd.store.NextClock(nd.clientID) != 0 {
 		nd.setClientID(NewClientID())
 	}
@@ -338,7 +342,7 @@ func (c *docCloner) copyPending() {
 	for client, clock := range sp.missing {
 		missing[client] = clock
 	}
-	c.dst.store.pending = &pendingUpdate{items: items, dead: sp.dead, missing: missing, ready: sp.ready}
+	c.dst.store.pending = &pendingUpdate{items: items, dead: sp.dead, missing: missing, ready: sp.ready, bytes: sp.bytes}
 	c.parked, c.parkedSrc = items, sp.items
 }
 
@@ -454,11 +458,13 @@ func (c *docCloner) linkStruct(it, cp *Item) {
 }
 
 // copyPendingDeletes copies the parked delete ranges, their count, and the
-// clients a struct has reached since the last retry.
+// clients a struct has reached since the last retry. The copy's map is made
+// at its size, which is the most clients it has held.
 func (c *docCloner) copyPendingDeletes() {
 	src, dst := c.src.store, c.dst.store
 	dst.pendingDs = copyDeleteSet(src.pendingDs)
 	dst.pendingDsRanges = src.pendingDsRanges
+	dst.pendingDsClientsPeak = len(dst.pendingDs.clients)
 	if src.pendingDsMoved != nil {
 		moved := make(map[ClientID]struct{}, len(src.pendingDsMoved))
 		for client := range src.pendingDsMoved {

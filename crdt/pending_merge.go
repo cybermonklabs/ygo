@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"math"
 	"slices"
+	"strings"
 )
 
 // mergeDropped marks a struct the merge leaves out.
@@ -365,12 +366,22 @@ func (pl mergePlan) growth() int {
 }
 
 // keep cuts item to what k keeps of it, or reports it dropped.
+//
+// A cut string keeps a substring of the one it was cut from, which holds that
+// whole string, so the part kept is given bytes of its own: the queue then
+// holds what PendingStats.ContentBytes counts of it, and not the front the
+// merge dropped. No other cut keeps more than its part: a cut ContentAny or
+// ContentJSON copies its values, ContentDeleted holds no bytes, and every
+// other content is one clock long, which the merge keeps or drops whole.
 func keep(item *Item, k mergeKeep) bool {
 	if !k.kept() {
 		return false
 	}
 	if k.start > item.ID.Clock {
 		sliceItemFront(item, k.start-item.ID.Clock)
+		if s, ok := item.Content.(*ContentString); ok {
+			s.Str = strings.Clone(s.Str)
+		}
 		if !isGCStruct(item) {
 			// Yjs writes no parent for a cut struct, which then takes its origin's.
 			item.Parent, item.ParentSub, item.parentID = nil, nil, nil
@@ -417,7 +428,9 @@ func (p *pendingUpdate) apply(pl mergePlan, arrived []*Item, viewed bool) []*Ite
 			case !k.kept():
 				dropped, changed = append(dropped, q), true
 			default:
+				before := structBytes(q.Item)
 				keep(q.Item, k)
+				p.bytes += structBytes(q.Item) - before
 				if k.end > end {
 					p.cover.insertSpan(q.Item)
 					p.noteTail(q.Item)
@@ -457,6 +470,7 @@ func (p *pendingUpdate) apply(pl mergePlan, arrived []*Item, viewed bool) []*Ite
 // place unless viewed.
 func (p *pendingUpdate) drop(dropped []queued, viewed bool) {
 	for _, q := range dropped {
+		p.bytes -= structBytes(q.Item)
 		p.items[q.slot] = nil
 	}
 	if p.dead += len(dropped); 2*p.dead < len(p.items) {
@@ -474,7 +488,10 @@ func (p *pendingUpdate) drop(dropped []queued, viewed bool) {
 	if !viewed {
 		clear(p.items[len(held):])
 	}
-	p.items, p.dead = held, 0
+	// Compacted in place, the list keeps the array of the most structs it
+	// held, which its figures do not count: a queue that reached its cap and
+	// was cut to one by a merge would hold it while that one stays parked.
+	p.items, p.dead = shrunk(held), 0
 	// The slots moved, so the next merge builds the struct index again.
 	p.cover.structs, p.cover.clients = nil, seq[ClientID]{}
 }
