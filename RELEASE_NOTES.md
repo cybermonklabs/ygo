@@ -1,3 +1,16 @@
+## v1.55.1-sami.16
+
+This release rewrites one test comment that named an issue in a tracker
+outside this repository. No code, API, wire format or test name changes.
+
+### A comment that named an issue a reader cannot open
+
+The `provider/websocket` test that checks a large state fits the per-peer
+write queue said its 1.22 MB figure came from a numbered issue in a tracker
+a reader of this repository cannot open; it now says the figure is measured.
+The constant it stands over, 1,220,000 bytes, and the test's name are
+unchanged.
+
 ## v1.55.1-sami.10
 
 This fork release retains the complete

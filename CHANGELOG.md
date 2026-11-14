@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.55.1-sami.16] — 2026-11-14
+
+Rewrites one test comment that named an issue in a tracker outside this
+repository. No code, API, wire format or test name changes.
+
+### Changed
+
+- **A test comment no longer names an issue outside this repository.** The
+  test that checks a large state fits the per-peer write queue
+  (`TestUnit_StateReply_WriteQueueHoldsALargeState`) said its 1.22 MB figure
+  came from a numbered issue in a tracker a reader of this repository cannot
+  open, and now says the figure is measured. The constant it stands over,
+  `1_220_000`, and the test's name are unchanged.
+
 ## [1.55.1-sami.10] — 2026-11-12
 
 Fork release on [1.55.1-sami.9](https://github.com/sjawhar/ygo/releases/tag/v1.55.1-sami.9),
