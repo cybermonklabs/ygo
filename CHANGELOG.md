@@ -21,6 +21,27 @@ and a server that does not set it behaves exactly as before.
   still be taking a large frame when their session is revoked can set a
   longer one so the code reaches them.
 
+## [1.55.1-sami.11] — 2026-11-14
+
+Adds one method to `Doc`. No wire format changes, and nothing that exists
+changes.
+
+### Added
+
+- **`crdt.Doc.ClientCount`** — how many clients the document holds structs
+  from: every client with an item in the document, deleted or collected since
+  included, so a client counts from the first of its writes that integrates
+  and stays counted. A client that has only deleted is not counted, nor is a
+  client whose every struct is parked until a missing dependency arrives, and
+  a subdocument's clients count in its own `Doc`. It is the number of clients
+  `StateVector` returns. A peer chooses its own client ID, and what a document
+  costs follows its clients as well as its structs: encoding the state of
+  100,000 one-character structs allocates 3.9 MB when one client wrote them
+  and 30.0 MB when each came from a client of its own, and `StructCount` is
+  100,000 for both. The call takes the document's read lock, so it must not be
+  made inside a `Transact` callback; it allocates nothing and takes the same
+  time however many clients the document holds.
+
 ## [1.55.1-sami.10] — 2026-11-12
 
 Fork release on [1.55.1-sami.9](https://github.com/sjawhar/ygo/releases/tag/v1.55.1-sami.9),
