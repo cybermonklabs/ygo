@@ -52,6 +52,14 @@ sets no check behaves exactly as before.
   so it must cost in proportion to the change. A document with a check is a
   bounded document: it applies every remote update whole or not at all, and
   refuses a remote update carrying a subdocument or a move.
+- **`provider/websocket` and `provider/http` treat a refused drain as an
+  applied update.** An apply error wrapping `crdt.ErrApplyCheckDrain` means
+  the update stood, so the sending peer is answered `SyncStatus(1)` and its
+  update is relayed to the room's other peers, as for any applied update. An
+  `OnPeerUpdate` hook's `apply` still returns the error, and the peer is
+  answered as applied. An update the cluster relay delivers goes out to
+  local peers and `Inject` returns no error, and the HTTP provider answers
+  204. What the drain would have landed is neither applied nor relayed.
 
 ## [1.55.1-sami.10] — 2026-11-12
 
