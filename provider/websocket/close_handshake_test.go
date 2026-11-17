@@ -3,6 +3,7 @@ package websocket_test
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"log/slog"
 	"net"
 	"net/http"
@@ -52,8 +53,24 @@ func refusingServer(t *testing.T, stored []byte, configure func(*ygws.Server)) *
 	}
 	ts := httptest.NewServer(srv)
 	t.Cleanup(ts.Close)
+	t.Cleanup(func() { shutdownServer(srv) })
 	return ts
 }
+
+// shutdownServer shuts srv down and waits for its connections' goroutines, so
+// what a test's rooms still do once it ends - a closing handshake's wait, a
+// room's teardown - is over before the next test runs, and competes with it
+// for neither the CPUs nor the heap it measures.
+func shutdownServer(srv *ygws.Server) {
+	ctx, cancel := context.WithTimeout(context.Background(), closeReadWait)
+	defer cancel()
+	_ = srv.Shutdown(ctx)
+}
+
+// closeReadWait is how long a test waits for what the server sends a peer it
+// closes: far longer than a busy machine takes to deliver it, and still a
+// bound, so a close frame that never comes fails the test.
+const closeReadWait = 30 * time.Second
 
 // causeServer serves rooms that load stored, and hands the test the cancel of
 // each connection's request context, as an embedder revoking a session holds
@@ -69,6 +86,7 @@ func causeServer(t *testing.T, stored []byte) (*httptest.Server, <-chan context.
 		srv.ServeHTTP(w, r.WithContext(ctx))
 	}))
 	t.Cleanup(ts.Close)
+	t.Cleanup(func() { shutdownServer(srv) })
 	return ts, cancels
 }
 
@@ -103,7 +121,7 @@ func (l *serverLog) String() string {
 // frame carrying refusalCode.
 func readClose(t *testing.T, conn *gws.Conn) {
 	t.Helper()
-	require.NoError(t, conn.SetReadDeadline(time.Now().Add(2*time.Second)))
+	require.NoError(t, conn.SetReadDeadline(time.Now().Add(closeReadWait)))
 	var err error
 	for err == nil {
 		_, _, err = conn.ReadMessage()
@@ -173,7 +191,7 @@ func requireCloseWhileSending(t *testing.T, conn *gws.Conn) {
 
 	// The server writes what the buffers take, then the close.
 	time.Sleep(200 * time.Millisecond)
-	require.NoError(t, conn.SetReadDeadline(time.Now().Add(5*time.Second)))
+	require.NoError(t, conn.SetReadDeadline(time.Now().Add(closeReadWait)))
 	var err error
 	for err == nil {
 		_, _, err = conn.ReadMessage()
@@ -311,30 +329,65 @@ func TestInteg_CloseHandshake_APeerWithAFullQueueReceivesTheCloseCode(t *testing
 // dropped as it is read, through a small buffer, rather than read whole: a
 // frame the size of the read limit would otherwise take that much memory, for
 // nothing.
+//
+// The frame is written by hand, all but its last byte, so the server is still
+// reading it when the heap is measured: a server that read it whole would then
+// hold all it has read of it, which is every byte but what the buffers at both
+// ends hold (4 MiB each at most here, so at least 16 MiB of a 24 MiB frame).
+// The measure is the heap the process holds once a collection has run, before
+// the refusal and after the frame, so what other goroutines allocate and drop
+// meanwhile is not counted. The server gives the peer five seconds from its
+// close frame to answer (closeHandshakeTimeout), and the frame, its
+// measurement and the answer all fit in them on a machine whose CPUs are
+// busy; the baseline is read before the close so its collection does not
+// spend them.
 func TestInteg_CloseHandshake_AFrameSentDuringTheHandshakeIsNotHeld(t *testing.T) {
-	const frameBytes = 48 << 20
+	const frameBytes = 24 << 20
 	ts := refusingServer(t, nil, nil)
 	conn := dial(t, ts, "room")
 	conn.SetCloseHandler(func(int, string) error { return nil }) // answers below, by hand
 	doc := crdt.New(crdt.WithClientID(2))
 	drainHandshake(t, conn, doc)
+	chunk := make([]byte, 64<<10)
+	before := liveHeap()
 	sendSync(t, conn, ygsync.EncodeUpdate(textUpdate(doc, "refused")))
 	readClose(t, conn)
 
-	frame := make([]byte, frameBytes)
-	var before, after runtime.MemStats
-	runtime.ReadMemStats(&before)
-	require.NoError(t, conn.WriteMessage(gws.BinaryMessage, frame))
-	require.NoError(t, conn.WriteControl(gws.CloseMessage, gws.FormatCloseMessage(gws.CloseNormalClosure, ""), time.Now().Add(time.Second)))
+	// A binary frame of frameBytes, masked with a key of zero bytes, so its
+	// payload of zeros is sent as it is.
+	header := make([]byte, 14)
+	header[0] = 0x82       // FIN, binary
+	header[1] = 0x80 | 127 // masked, 64-bit length
+	binary.BigEndian.PutUint64(header[2:10], frameBytes)
+	raw := conn.NetConn()
+	require.NoError(t, raw.SetWriteDeadline(time.Now().Add(closeReadWait)))
+	_, err := raw.Write(header)
+	require.NoError(t, err)
+	for left := frameBytes - 1; left > 0; left -= min(left, len(chunk)) {
+		_, err := raw.Write(chunk[:min(left, len(chunk))])
+		require.NoError(t, err, "the server stopped reading the frame")
+	}
+	after := liveHeap()
+	assert.Less(t, int64(after)-int64(before), int64(frameBytes/4),
+		"the server holds about as much as the frame it was to drop")
+
+	_, err = raw.Write(chunk[:1])
+	require.NoError(t, err)
+	require.NoError(t, conn.WriteControl(gws.CloseMessage, gws.FormatCloseMessage(gws.CloseNormalClosure, ""), time.Now().Add(closeReadWait)))
 	// The server closes the connection once it reads the answer, which is
 	// behind the frame.
-	require.NoError(t, conn.NetConn().SetReadDeadline(time.Now().Add(10*time.Second)))
-	_, err := conn.NetConn().Read(make([]byte, 1))
+	require.NoError(t, raw.SetReadDeadline(time.Now().Add(closeReadWait)))
+	_, err = raw.Read(make([]byte, 1))
 	require.Error(t, err)
 	require.False(t, isTimeout(err), "the server did not close the connection after the peer's answer")
-	runtime.ReadMemStats(&after)
-	assert.Less(t, after.TotalAlloc-before.TotalAlloc, uint64(frameBytes/4),
-		"the server allocated about as much as the frame it was to drop")
+}
+
+// liveHeap is the heap the process holds once a collection has run.
+func liveHeap() uint64 {
+	runtime.GC()
+	var m runtime.MemStats
+	runtime.ReadMemStats(&m)
+	return m.HeapAlloc
 }
 
 // A peer that has sent frames after the server's last read still receives the
