@@ -51,7 +51,7 @@ var ErrIntegrateScanBudget = fmt.Errorf("%w: its conflict scans pass more items 
 // RefusedUpdateError is the error ApplyUpdateV1 and ApplyUpdateV2 return for a
 // remote update a bounded document (WithMaxIntegrateScan,
 // WithIntegrateScanBudget, WithApplyBudget, WithAllowedRoots,
-// WithRefusedContent) refused and took
+// WithRefusedContent, WithApplyCheck) refused and took
 // back. The refused apply commits no transaction an observer sees, so this
 // error is what reports the work it did.
 //
@@ -59,7 +59,9 @@ var ErrIntegrateScanBudget = fmt.Errorf("%w: its conflict scans pass more items 
 // reached the apply's limit, ErrApplyBudget when it decoded or added more than
 // its budget allows, ErrRootNotAllowed when it named a root the document does
 // not allow, ErrContentNotAllowed when it carried a kind of content the
-// document does not take, otherwise an error wrapping ErrInvalidUpdate.
+// document does not take, an error wrapping both ErrApplyCheck and the
+// check's own error when the document's apply check refused what it left,
+// otherwise an error wrapping ErrInvalidUpdate.
 // Unwrap returns it, so errors.Is matches either, and Error is its message.
 //
 // Scanned is the number of items the refused apply's conflict scans passed,
@@ -843,7 +845,9 @@ func applyV1Txn(txn *Transaction, update []byte) (retErr error) {
 		return err
 	}
 
-	return nil
+	// 4. The document's apply check judges what the update left, before the
+	//    drain, where a refusal still rolls the whole apply back (checkApply).
+	return checkApply(txn)
 }
 
 // drainAfterApply drains the pending queue last in every apply that began to

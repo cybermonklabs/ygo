@@ -5,6 +5,38 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.55.1-sami.17] — 2026-11-17
+
+Adds one opt-in document option. No wire format changes, and a document that
+sets no check behaves exactly as before.
+
+### Added
+
+- **`crdt.WithApplyCheck` / `Doc.SetApplyCheck`** — a check that refuses a
+  remote update by what it leaves the document holding, for a bound the
+  update's bytes do not show and only the integrated result can be measured
+  against. As each remote apply has integrated the update's structs and
+  applied its delete set, and before its transaction commits, the document
+  calls the check with the apply's origin and an `ApplyView` of the document
+  as the update left it. An error refuses the update: the apply is rolled back
+  whole, the document is left byte for byte as it was, no observer fires, and
+  the apply returns a `RefusedUpdateError` wrapping `ErrApplyCheck` and the
+  check's error. The drain of the pending queue is checked on its own, since
+  what it lands was parked by other updates: a refusal there takes back the
+  drain alone, the update that filled the gap stands, and the apply returns an
+  error wrapping `ErrApplyCheckDrain` and the check's error, which is not a
+  `RefusedUpdateError`. A check that panics has the apply, or its drain, taken
+  back the same way, and the panic then reaches the caller once the
+  transaction has committed. `ApplyView` reads without the document's lock,
+  which the apply holds (`TextString`, `TextDelta`, `MapGet`, `MapEntries`,
+  `ArraySlice`, `ChangedTypes`), holds no transaction to write with, reads only
+  its own document and reads nothing once the check has returned. The check
+  runs under the document's write lock, once for each remote apply that
+  changes the document and once more for a drain that lands parked content,
+  so it must cost in proportion to the change. A document with a check is a
+  bounded document: it applies every remote update whole or not at all, and
+  refuses a remote update carrying a subdocument or a move.
+
 ## [1.55.1-sami.10] — 2026-11-12
 
 Fork release on [1.55.1-sami.9](https://github.com/sjawhar/ygo/releases/tag/v1.55.1-sami.9),

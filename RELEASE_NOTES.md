@@ -1,3 +1,49 @@
+## v1.55.1-sami.17
+
+This release adds one opt-in document option. There are no wire format
+changes, and a document that sets no check behaves exactly as before.
+
+### A check of what a remote update leaves the document holding
+
+An update's bytes do not show what it does to a document: where each item
+lands, and what a deleted format item leaves formatted, depend on what the
+document already holds. A bound on the document's shape can therefore only be
+measured after the update integrates, and by then the update had committed,
+its observers had run and it had been relayed.
+
+`crdt.WithApplyCheck` and `Doc.SetApplyCheck` set a check that runs after a
+remote apply integrates and before its transaction commits. It receives the
+apply's origin, so an owner can pass its own loads without measuring them, and
+an `ApplyView` of the document as the update left it. An error refuses the
+update: the apply is rolled back whole, as every refusal of a bounded document
+is, so the document is left byte for byte as it was, no observer fires and
+nothing is relayed, and the apply returns a `RefusedUpdateError` wrapping
+`ErrApplyCheck` and the check's own error.
+
+The drain of the pending queue is judged on its own. What it lands was parked
+by other updates, under client IDs no peer has to prove are its own, so
+refusing the update that fills their gap would let one peer have every such
+update refused. A refusal of the drain takes back the drain alone: the update
+stands and commits, and the apply returns an error wrapping
+`ErrApplyCheckDrain` and the check's error, which is not a
+`RefusedUpdateError`. The parked structs are parked again, and each later
+apply that retries them is checked again and stands.
+
+A check that panics has the apply, or its drain, taken back the same way, and
+the panic then reaches the caller once the transaction has committed and the
+document's lock is released.
+
+The check runs under the document's write lock, which every content read of
+the document's types takes, so it reads through the view: `TextString`,
+`TextDelta`, `MapGet`, `MapEntries`, `ArraySlice` and `ChangedTypes` take no
+lock and fill no cache, the view holds no transaction to write with, reads only
+its own document, and reads nothing once the check has returned. The check
+runs once for each remote apply that changes the document and once more for a
+drain that lands parked content, so it must cost in proportion to the change.
+A document with a check is a bounded document: it applies every remote update
+whole or not at all, and refuses a remote update carrying a subdocument or a
+move.
+
 ## v1.55.1-sami.10
 
 This fork release retains the complete
