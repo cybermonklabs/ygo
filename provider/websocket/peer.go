@@ -286,10 +286,12 @@ func (p *peer) applySyncUpdate(subType int, update, payload []byte) {
 // applyToRoom applies update to the room's document and reports whether the
 // room already held all of it. When the apply fails after part of the update
 // integrated or parked, it broadcasts that part, and only that part, to the
-// room's other peers, so they hold what the room holds.
+// room's other peers, so they hold what the room holds. An update whose drain
+// alone was refused stood whole (updateStood), and its caller relays it as an
+// applied one.
 func (p *peer) applyToRoom(update []byte) (bool, error) {
 	landed, held, err := crdt.ApplyUpdateV1Held(p.room.doc, update, p)
-	if err != nil && landed != nil {
+	if !updateStood(err) && landed != nil {
 		p.broadcastSync(ygsync.EncodeUpdate(landed))
 	}
 	return held, err

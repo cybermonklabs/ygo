@@ -29,6 +29,15 @@ stands and commits, and the apply returns an error wrapping
 `RefusedUpdateError`. The parked structs are parked again, and each later
 apply that retries them is checked again and stands.
 
+The providers read a refused drain the same way. In `provider/websocket`, the
+peer that sent such an update is answered `SyncStatus(1)` and the update is
+relayed to the room's other peers, so its client does not hold an edit that
+landed as unsent and send it again. An `OnPeerUpdate` hook's `apply` returns
+the error, and the peer is still answered as applied. An update the cluster
+relay delivers goes out to local peers and `Inject` returns no error. The HTTP
+provider answers 204. What the drain would have landed is neither applied nor
+relayed.
+
 A check that panics has the apply, or its drain, taken back the same way, and
 the panic then reaches the caller once the transaction has committed and the
 document's lock is released.
