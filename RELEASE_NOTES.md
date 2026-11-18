@@ -18,6 +18,46 @@ that may still be taking a large frame on a slow link can set a longer
 deadline so the code reaches them. The connection stays open, with the peer's
 input dropped, while the frame waits.
 
+## v1.55.1-sami.19
+
+This release adds two opt-in options of the WebSocket server and the apply
+function they read. There are no wire format changes, and a server that sets
+neither option behaves exactly as before.
+
+### A frame that parks is not treated as landed
+
+An update a peer sends can carry structs the room cannot integrate yet: their
+client's earlier clocks, or an item they name, have not reached the room. The
+room parks them in its pending queue until the update that fills the gap
+arrives. Until now the server relayed such a frame to the room's other peers
+as it was sent, so they parked it too, and answered the sender
+`SyncStatus(1)`, so a client that keeps an edit until it is answered applied
+dropped it, though the room had not landed it.
+
+`Server.RelayIntegratedOnly` relays each peer update as what its apply
+integrated instead: the commit's own update, the bytes the room's `OnUpdate`
+observers are handed. A frame that only parked is relayed to nobody; the frame
+that fills its gap is relayed with what the room's drain of the queue landed
+with it, so the other peers receive the parked structs once the room holds
+them; a frame the room already held relays nothing, as before; and a frame
+whose apply fails partway relays what it integrated, without what it parked.
+Updates the cluster relay delivers are relayed as before.
+
+`Server.AnswerParkedNotApplied` answers `SyncStatus(0)` for a peer update the
+room applied but left part of parked. What did integrate stands and is
+relayed. The client keeps the edit and sends it again, and once the room holds
+it the room answers 1.
+
+Both read `crdt.ApplyUpdateV1Outcome`, which is `ApplyUpdateV1Held` with an
+`ApplyOutcome`: `Integrated` is the commit's update, encoded for the caller
+when the document has no `OnUpdate` observer, and `Parked` says whether the
+update stood with a struct it carries, or a clock it deletes, past the clocks
+the store holds of its client - parked, merged into a struct the queue held,
+or left out by a drain the document took back. To report it the function scans
+the update's structs and delete set once more, without decoding their
+content. A server with neither option applies through `ApplyUpdateV1Held`, as
+before.
+
 ## v1.55.1-sami.17
 
 This release adds one opt-in document option. There are no wire format
