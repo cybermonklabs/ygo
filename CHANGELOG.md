@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.55.1-sami.18] — 2026-11-18
+
+Adds one field. No wire format changes, and a hook that does not read it
+behaves exactly as before.
+
+### Added
+
+- **`provider/websocket`: `PeerUpdateInfo.Context`** — the context of the
+  request `ServeHTTP` served the peer's connection on, with the values the
+  embedder put on it: the context `Server.OnTokenAuthContext` receives. An
+  `OnPeerUpdate` hook can now tell apart the connections of one room that
+  send updates. Nothing on it names the connection unless the embedder puts
+  it there, and neither a client disconnect nor `Shutdown` cancels it while
+  the hook runs.
+
 ## [1.55.1-sami.10] — 2026-11-12
 
 Fork release on [1.55.1-sami.9](https://github.com/sjawhar/ygo/releases/tag/v1.55.1-sami.9),
