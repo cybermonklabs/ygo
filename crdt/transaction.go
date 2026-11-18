@@ -745,6 +745,15 @@ type boundedApplyState struct {
 	// runCheck).
 	drainRefused error
 	checkPanic   any
+	// drainTakenBack is whether a drain taken back on a document that
+	// discards refused drains discarded what its fill released
+	// (discardReleased), and the rest are what it discarded, what its scans
+	// passed and the origins that parked what it discarded, which the apply
+	// returns as a DrainDiscardedError (endRemoteApply).
+	drainTakenBack                    bool
+	discardedStructs, discardedRanges int
+	drainScanned                      int
+	discardedSenders                  []any
 }
 
 // beginBoundedApply returns txn's bounded apply state, made on first use.

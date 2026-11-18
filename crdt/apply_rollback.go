@@ -371,6 +371,18 @@ func endRemoteApply(txn *Transaction, err error) error {
 	}
 	if err == nil {
 		noteApplyReport(txn, j)
+		if state.drainTakenBack {
+			// The update stands; a drain taken back on a document that
+			// discards refused drains discarded what its fill released
+			// (discardReleased), and the apply says what.
+			return &DrainDiscardedError{
+				Structs: state.discardedStructs,
+				Ranges:  state.discardedRanges,
+				Scanned: state.drainScanned,
+				Senders: state.discardedSenders,
+				Cause:   state.drainRefused,
+			}
+		}
 		// The update stands; a drain the apply check refused was taken back
 		// (checkDrain), and that is the apply's error.
 		return state.drainRefused
@@ -463,7 +475,10 @@ func reportApply(txn *Transaction) {
 // changed: rollBackTo unlinks it and undoes the drain's deletion of it, a
 // parked item the drain integrated, trimmed or split gets back the fields the
 // drain found it with (keepParked), and parkAgain clears the neighbours and
-// the move the drain gave it.
+// the move the drain gave it. On a document that discards refused drains
+// (SetDiscardRefusedDrain) the take-back parks the queue again without what
+// the fill released, and drops the pending deletes below the clocks that
+// reaches (discardReleased).
 func drainParked(txn *Transaction, drain func()) {
 	j := txn.applyJournal()
 	if j == nil {
@@ -484,6 +499,7 @@ func drainParked(txn *Transaction, drain func()) {
 	if j.drainOwnAllowance {
 		txn.boundedApply.scanFrom = txn.scanned
 	}
+	scannedBefore := txn.scanned
 	defer func() {
 		r := recover()
 		j.at = &j.start
@@ -496,13 +512,21 @@ func drainParked(txn *Transaction, drain func()) {
 			*item = as
 		}
 		j.parkedAs = nil
-		s.pending = parkAgain(s, pending)
-		pendingDs.restore(s)
-		pendingMoves.restore(s)
 		if s.parked != nil {
 			clear(s.parked.left[leftLen:])
 			s.parked.left = s.parked.left[:leftLen]
 		}
+		pendingMoves.restore(s)
+		if txn.doc.discardRefusedDrain {
+			cause := txn.boundedApply.drainRefused
+			if cause == nil {
+				cause = recoveredApplyErr(r)
+			}
+			discardReleased(txn, pending, pendingDs, txn.scanned-scannedBefore, cause)
+			return
+		}
+		s.pending = parkAgain(s, pending)
+		pendingDs.restore(s)
 		// The failure stays the drain's, the split budget's included: the
 		// drain is taken back, the backlog is parked again whole, and the
 		// update that filled the gap stands.

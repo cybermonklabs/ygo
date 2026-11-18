@@ -18,6 +18,39 @@ that may still be taking a large frame on a slow link can set a longer
 deadline so the code reaches them. The connection stays open, with the peer's
 input dropped, while the frame waits.
 
+## v1.55.1-sami.22
+
+This release adds one opt-in document option and the error it returns.
+There are no wire format changes, and a document that does not set the
+option behaves exactly as before.
+
+### A refused drain is discarded, not parked again
+
+A document with a scan bound, a budget or an apply check takes back a drain
+of its pending queue that fails on its own: its apply check refuses what the
+drain landed, its scans pass their allowance, or its splits pass the split
+budget. The update that filled the gap stands, and the backlog is parked
+again whole, so every later update that fills the same gap runs into the same
+refusal, and nothing tells the backlog's senders that their content will not
+land.
+
+`Doc.SetDiscardRefusedDrain(true)` discards instead what the fill released:
+every parked struct whose dependencies the store now holds, or another such
+struct supplies - what a drain run to its end would have integrated, read
+from the clocks alone - and every pending delete range, or the part of one,
+below the clocks the store and those structs reach. What the fill did not
+release stays parked. The update that filled the gap stands as before, and
+the apply returns a `*crdt.DrainDiscardedError` with what it discarded
+(`Structs`, `Ranges`), what the drain's scans passed (`Scanned`), why the
+drain was taken back (`Cause`), and `Senders`: the origins of the applies
+that parked what was discarded, each comparable origin once. The document
+records those origins at each commit that parks something while the option
+is on, so a park made before it was set names nobody. The error wraps
+`ErrApplyCheckDrain`, so the WebSocket and HTTP providers still answer and
+relay the update as applied, and a server can close each sender
+(`errors.As` on the apply's error) so its client sends the content again on
+reconnect.
+
 ## v1.55.1-sami.17
 
 This release adds one opt-in document option. There are no wire format

@@ -737,6 +737,13 @@ type Doc struct {
 	applyReport    func(origin any, report ApplyReport)
 	applyCheck     func(origin any, view *ApplyView) error
 	applying       *applyTally
+	// discardRefusedDrain is SetDiscardRefusedDrain's setting, and parkedBy
+	// and parkedDsBy, kept only while it is on, the origin of the apply that
+	// parked each struct and delete set the pending queue holds
+	// (recordParkedOrigins).
+	discardRefusedDrain bool
+	parkedBy            map[*Item]any
+	parkedDsBy          []parkedDeletesBy
 
 	store *StructStore
 	share map[string]sharedType // named root types
@@ -1396,6 +1403,7 @@ func collectAndEncodeLocked(d *Doc, txn *Transaction) (update []byte) {
 	if txn.landed != nil {
 		*txn.landed = encodeTxnV1Locked(txn)
 	}
+	recordParkedOrigins(d, txn)
 	return update
 }
 
