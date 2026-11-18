@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.55.1-sami.23] — 2026-11-18
+
+Adds one opt-in document option. No wire format changes, and a document that
+does not set it behaves exactly as before.
+
+### Added
+
+- **`crdt`: `Doc.SetParkedOutOfState(bool)`** (off by default) and
+  **`Doc.ParkedOutOfState()`** — leaves the structs and deletions a document
+  holds parked out of every encode of its state: `EncodeStateAsUpdateV1` and
+  `V2`, `SplitStateAsUpdateV1` (the answer to a sync step 1) and the base an
+  update log records. `ApplyReport.StateBytes` counts no parked content
+  either: a park adds nothing, and the drain that lands a parked struct
+  counts it as an append. The queue is kept and still drains when its gap
+  fills; `PendingStats` and `ApplyReport.Structs` still count it, as memory
+  the document holds. `Clone` copies the setting, and the WebSocket server's
+  `StateAnswerInfo.Structs` leaves parked structs out under it.
+
 ## [1.55.1-sami.14] — 2026-11-14
 
 Fixes a merge that let a struct parked over clocks a document holds take

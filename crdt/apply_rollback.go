@@ -195,9 +195,13 @@ func beginRemoteApply(txn *Transaction, before StateVector) {
 	if d.applyReport != nil {
 		// The report's StateBytes is counted where the apply makes each
 		// change (state_bytes.go); the queue's size as the apply finds it
-		// bounds what the counts it does not keep can be.
+		// bounds what the counts it does not keep can be. A queue out of the
+		// state bounds nothing.
 		j.tally.stateOn, j.tally.stateClients = true, -1
-		j.tally.held = s.pending.heldStructs()
+		j.tally.parkedOut = s.parkedOutOfState
+		if !j.tally.parkedOut {
+			j.tally.held = s.pending.heldStructs()
+		}
 		j.tally.fresh = j.tally.held == 0
 	}
 	state := txn.beginBoundedApply()
@@ -1060,6 +1064,9 @@ type applyTally struct {
 	// (noteStatePark). drainQueue is the queue the running drain takes apart,
 	// which the report reads in its place (applyTally.queue), and
 	// parkedDeletes is the clients the apply parked delete ranges of.
+	// parkedOut is whether the document keeps its parked content out of its
+	// state (SetParkedOutOfState), so the count reads no queue and counts no
+	// park, and a struct a drain lands counts as an append.
 	stateOn        bool
 	state          int
 	stateClients   int
@@ -1073,6 +1080,7 @@ type applyTally struct {
 	drainQueue     *pendingUpdate
 	drainMoved     map[ClientID]int
 	parkedDeletes  []ClientID
+	parkedOut      bool
 }
 
 // noApplyBudget is the budget of an apply on a document with no budget
