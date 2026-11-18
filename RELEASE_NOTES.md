@@ -18,6 +18,34 @@ that may still be taking a large frame on a slow link can set a longer
 deadline so the code reaches them. The connection stays open, with the peer's
 input dropped, while the frame waits.
 
+## v1.55.1-sami.23
+
+This release adds one opt-in document option. There are no wire format
+changes, and a document that does not set it behaves exactly as before.
+
+### What is parked is not in the state until it lands
+
+A document parks a struct that waits for one it lacks, and a deletion of a
+struct it lacks, in its pending queue, and until now every encode of its
+state carried them, as Yjs's does: a joiner answered with the room's state,
+a copy loaded from it, or a reader of an update log's base then held content
+the room had not landed, and parked it too.
+
+`Doc.SetParkedOutOfState(true)` leaves the queue and the pending deletes out
+of `EncodeStateAsUpdateV1` and `EncodeStateAsUpdateV2`, out of
+`SplitStateAsUpdateV1` (the answer to a sync step 1) and out of the base an
+update log records, so each carries the document's integrated structs and
+deletions only. `ApplyReport.StateBytes` counts the same state: a park adds
+nothing to it, and the drain that lands a parked struct counts it as an
+append to the store. What is parked is kept: a later update that fills its
+gap still drains it, and that commit's update carries it. `Doc.PendingStats`
+and `ApplyReport.Structs` still count it, as memory the document holds, so a
+caller weighing the encoded state reads `StateBytes` or `StructCount`, and
+one weighing what the document holds adds `PendingStats`. `Clone` copies the
+setting, and the WebSocket server's `StateAnswerInfo.Structs` leaves parked
+structs out of an answer's weight under it. Set it before the document is
+handed to any reader.
+
 ## v1.55.1-sami.14
 
 This fork release fixes a merge that let a struct parked over clocks a

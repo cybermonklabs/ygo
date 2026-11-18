@@ -273,5 +273,7 @@ func TestUnit_PendingResolver_ParkRecordHoldsOnlyWhatParks(t *testing.T) {
 func TestUnit_Transaction_ParkRecordKeepsItsSize(t *testing.T) {
 	word := unsafe.Sizeof(uintptr(0))
 	require.Equal(t, 31*word, unsafe.Sizeof(Transaction{}))
-	require.Equal(t, 13*word, unsafe.Sizeof(StructStore{}))
+	// SetParkedOutOfState's flag (StructStore.parkedOutOfState) takes the
+	// store from 13 words to 14.
+	require.Equal(t, 14*word, unsafe.Sizeof(StructStore{}))
 }

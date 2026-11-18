@@ -527,6 +527,12 @@ type ApplyReport struct {
 	// marker adding a delete-set entry of 9 bytes for B's client of
 	// 2^40 + 1. With GC on the same case reports 6 and the state grows by 6.
 	// An owner bounding state counts those commits too.
+	//
+	// On a document whose parked content is out of its state
+	// (SetParkedOutOfState) the state is the store's structs and deletions
+	// alone, and so is the count: a park adds nothing, and the drain that
+	// lands a parked struct counts it as an append to the store. What the
+	// queue holds in memory is in Structs and Doc.PendingStats instead.
 	StateBytes int
 }
 
@@ -1914,7 +1920,11 @@ type PendingStats struct {
 // PendingStats returns a snapshot of the pending-queue state. Cheap; takes
 // a read lock and copies a few values. Intended for operational monitoring
 // of out-of-order delta convergence; see v1.2.0 release notes for the
-// pending-structs machinery this exposes.
+// pending-structs machinery this exposes. It counts what the document holds
+// parked in memory whether or not its encoded state carries it: under
+// SetParkedOutOfState none of it is in the state, so a caller weighing the
+// encoded state reads StructCount or ApplyReport.StateBytes, and one weighing
+// what the document holds adds this.
 func (d *Doc) PendingStats() PendingStats {
 	d.mu.RLock()
 	defer d.mu.RUnlock()

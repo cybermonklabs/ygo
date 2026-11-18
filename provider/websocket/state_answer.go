@@ -19,7 +19,9 @@ type StateAnswerInfo struct {
 	Doc *crdt.Doc
 	// Structs is how many structs the answer may have to encode: every
 	// struct Doc holds, the ones waiting in its pending queue included,
-	// since the answer carries those too (crdt.SplitStateAsUpdateV1). It is
+	// since the answer carries those too (crdt.SplitStateAsUpdateV1), unless
+	// Doc keeps its parked content out of its state
+	// (crdt.Doc.SetParkedOutOfState). It is
 	// read the instant before the hook is called and is a snapshot: the room
 	// goes on taking updates while a hook that waits holds the answer, so a
 	// hook that waits must read StructsNow before it decides how much to
@@ -42,11 +44,15 @@ func (i StateAnswerInfo) StructsNow() int {
 
 // answerStructs is how many structs an answer carrying the whole of doc
 // would encode: what the store holds and what waits in the pending queue,
-// which the answer carries as well (crdt.SplitStateAsUpdateV1, withParked). A
-// nil doc is no structs.
+// which the answer carries as well (crdt.SplitStateAsUpdateV1, withParked),
+// unless doc keeps its parked content out of its state
+// (crdt.Doc.SetParkedOutOfState). A nil doc is no structs.
 func answerStructs(doc *crdt.Doc) int {
 	if doc == nil {
 		return 0
+	}
+	if doc.ParkedOutOfState() {
+		return doc.StructCount()
 	}
 	return doc.StructCount() + doc.PendingStats().Items
 }
