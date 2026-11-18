@@ -289,7 +289,7 @@ func (p *peer) applySyncUpdate(subType int, update, payload []byte) {
 	case !out.Held:
 		p.broadcastSync(payload)
 	}
-	p.sendSyncStatus(!(p.server.AnswerParkedNotApplied && out.Parked))
+	p.sendSyncStatus(!p.server.AnswerParkedNotApplied || !out.Parked)
 }
 
 // applyToRoom applies update to the room's document and reports what the
