@@ -18,6 +18,39 @@ that may still be taking a large frame on a slow link can set a longer
 deadline so the code reaches them. The connection stays open, with the peer's
 input dropped, while the frame waits.
 
+## v1.55.1-sami.21
+
+This release adds one read-only function to `crdt`. There are no wire format
+changes, and nothing changes for a caller that does not use it.
+
+### Did two documents write the same clocks?
+
+An apply skips every struct at a (client, clock) the document already holds,
+as Yjs does: such a struct is taken to be a resend. When two documents write
+under one client ID, the second one's structs at clocks the room already
+holds are dropped without a word.
+
+`crdt.HeldStructsDifferV1(doc, update, client, from)` reports whether the V1
+update carries a struct of `client`, at a clock from `from` on, that differs
+from what `doc` holds at the same clock: its content unit (a UTF-16 unit of a
+string, a value of an array, or a whole embed, format, binary, type,
+subdocument or move), its origin, its right origin, or, for a unit placed by
+its parent rather than by origins, its parent or its key. Structs cut at other
+clocks do not differ by that alone, since a unit past a struct's first clock
+has the unit before it as its origin. A struct `doc` does not hold, past its
+clock or parked in its pending queue, is not compared; neither is a GC struct,
+nor the content of a unit either side holds as deleted content, whose length,
+origins, parent and key still are. So where the document has collected
+deleted text, a second writer with the same origins but other content there
+reports no difference; comparing content the document no longer holds would
+report one for an honest client whose own text another client deleted.
+
+The update is decoded whole, as `DocContainsUpdateV1` decodes it, without
+integrating it; then, under the document's read lock, each struct of the
+client is found by a binary search and compared unit by unit with what the
+document holds. An update that does not decode returns an error wrapping
+`ErrInvalidUpdate`.
+
 ## v1.55.1-sami.10
 
 This fork release retains the complete
