@@ -644,8 +644,11 @@ func (d *Doc) SetRefusedContent(kinds func(origin any) []ContentKind) {
 // writer of the document waits for it, so it must cost in proportion to the
 // change and not to the document - ApplyView.ChangedTypes names the types
 // the apply changed - or every keystroke pays for the whole document. To
-// decide whether to call it, the library walks the store's clients, and for
-// a drain sums the transaction's delete ranges.
+// decide whether to call it, the library reads the apply's delete set and
+// the clocks of the clients the apply added structs for, and for a drain
+// that found parked structs or parked deletes walks the store's clients and
+// sums the transaction's delete ranges; a drain that found neither is not
+// judged.
 //
 // A document with a check is a bounded document, as one with an apply budget
 // is: it applies every remote update whole or not at all, and refuses a

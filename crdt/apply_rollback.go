@@ -122,6 +122,12 @@ type applyJournal struct {
 	// apply begins, so an apply runs a check only beside the journal that can
 	// take back what the check refuses.
 	check func(origin any, view *ApplyView) error
+	// touched is the clients the apply added or parked a struct for outside
+	// its drain, kept only beside a check (touch), so whether the update
+	// changed the document is asked of their clocks alone (checkApply);
+	// touchedBuf holds a keystroke's few without an allocation.
+	touched    []ClientID
+	touchedBuf [4]ClientID
 }
 
 // applyPoint is a point of an apply a rollback can return the document to.
@@ -473,6 +479,9 @@ func drainParked(txn *Transaction, drain func()) {
 	s := txn.doc.store
 	point := pointNow(txn, s.StateVector())
 	pending, pendingDs, pendingMoves := s.pending, parkedDeletesOf(s), pendingMovesOf(s)
+	// A drain lands only what the queue and the pending deletes hold, so one
+	// that finds both empty has nothing for the apply check to judge.
+	queued := pending.heldStructs() > 0 || len(s.pendingDs.clients) > 0
 	// The structs a drain takes out of the queue are listed in the park
 	// record (#340's transactionParked.left); a drain taken back parks them
 	// again, so the list goes back to its length as the drain began.
@@ -530,7 +539,7 @@ func drainParked(txn *Transaction, drain func()) {
 		// "invalid update" for ever and no way to reach the cause.
 	}()
 	drain()
-	checkDrain(txn, j, &point)
+	checkDrain(txn, j, &point, queued)
 }
 
 // keepQueueFor records, before a park merges arrivals into the queue the
@@ -1176,8 +1185,9 @@ func refuseOverBudget(txn *Transaction) error {
 // of its update to the store (Item.integrate, integrateGroup, appendTrimmed):
 // it refuses the apply when the item lands under a root the document's
 // allowed-roots list does not name (checkItemRoot), or under one the list of
-// the apply that parked it did not name (checkParkedRoot), and counts the
-// struct and its bytes against the budget.
+// the apply that parked it did not name (checkParkedRoot), counts the struct
+// and its bytes against the budget, and records its client for the apply
+// check (touch).
 //
 // A struct the drain of the pending queue adds is not the update's and is not
 // counted: refusing the update for what an earlier update parked would let
@@ -1199,9 +1209,29 @@ func noteIntegrated(txn *Transaction, item *Item) {
 		return
 	}
 	t.checkItemRoot(txn.doc, item.Parent)
-	if !txn.applyJournal().inDrain() {
+	if j := txn.applyJournal(); !j.inDrain() {
 		t.integrated(item)
+		j.touch(item.ID.Client)
 	}
+}
+
+// touch records client, whose struct the apply outside its drain is about to
+// add to the store or park (noteIntegrated), for the apply check: every struct
+// the update adds enters the store through noteIntegrated, so the clients
+// recorded are every client whose clock the update can have moved
+// (Transaction.changesDocAmong). A run of one client's structs is recorded
+// once. It records nothing on a document with no check, or with no journal.
+func (j *applyJournal) touch(client ClientID) {
+	if j == nil || j.check == nil {
+		return
+	}
+	if n := len(j.touched); n > 0 && j.touched[n-1] == client {
+		return
+	}
+	if j.touched == nil {
+		j.touched = j.touchedBuf[:0]
+	}
+	j.touched = append(j.touched, client)
 }
 
 // notePark records item with txn's apply, where the apply puts a struct of

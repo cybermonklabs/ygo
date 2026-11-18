@@ -18,6 +18,28 @@ that may still be taking a large frame on a slow link can set a longer
 deadline so the code reaches them. The connection stays open, with the peer's
 input dropped, while the frame waits.
 
+## v1.55.1-sami.24
+
+This release changes what the apply check costs, and nothing it does. There
+are no API or wire format changes.
+
+### The apply check costs what each apply touched
+
+A document with an apply check (`crdt.WithApplyCheck`, `Doc.SetApplyCheck`)
+decides for each remote apply whether the apply changed the document, which
+is when its check runs, and whether the drain of the pending queue that ends
+the apply landed anything, which is when the check runs again. Each answer
+was a walk of every client the document holds, made on every apply whatever
+the check then answered, so the cost of one keystroke grew with the number of
+clients that ever wrote to the document.
+
+The apply now reads its delete set and the clocks of the clients it added or
+parked a struct for, which are the only clients whose clocks it can have
+moved. A drain that finds neither parked structs nor parked deletes lands
+nothing, so it is not judged; a drain that finds either is judged as before.
+The check is called for the same applies and the same drains as before, sees
+the same state and refuses the same updates.
+
 ## v1.55.1-sami.17
 
 This release adds one opt-in document option. There are no wire format

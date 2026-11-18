@@ -113,7 +113,11 @@ func (v *ApplyView) reads(t *abstractType) {
 // integrated the update's structs and applied its delete set, before the
 // drain of the pending queue. Its error is the apply's, and refuses the
 // update: endRemoteApply rolls the whole apply back. An apply that changed
-// nothing is not checked, and an apply with no journal has no check.
+// nothing is not checked, and an apply with no journal has no check. Whether
+// it changed anything is asked of its delete set and of the clocks of the
+// clients it added or parked a struct for (applyJournal.touched), the only
+// clients whose clocks it can have moved, so the question costs what the
+// update carries and not the document's client count.
 //
 // It runs before the drain, and not once the drain is done, because no
 // rollback of the whole apply can follow a drain that succeeded: the drain
@@ -121,7 +125,7 @@ func (v *ApplyView) reads(t *abstractType) {
 // is checked on its own instead (checkDrain).
 func checkApply(txn *Transaction) error {
 	j := txn.applyJournal()
-	if j == nil || j.check == nil || !txn.changesDoc() {
+	if j == nil || j.check == nil || !txn.changesDocAmong(j.touched) {
 		return nil
 	}
 	switch panicked, err := j.runCheck(txn); {
@@ -134,13 +138,16 @@ func checkApply(txn *Transaction) error {
 }
 
 // checkDrain runs the apply check on what the drain of the pending queue
-// that began at point landed, when it landed anything. A refusal is raised
-// as a panic, which drainParked recovers, taking the drain back as it takes
-// back a drain past its allowance: the parked structs are parked again as the
-// drain found them, and the update that filled their gap stands. The apply
-// then returns the refusal as ErrApplyCheckDrain (endRemoteApply).
-func checkDrain(txn *Transaction, j *applyJournal, point *applyPoint) {
-	if j.check == nil || !drainLanded(txn, point) {
+// that began at point landed, when it landed anything. A drain that found
+// neither parked structs nor parked deletes (queued false) lands nothing, so
+// it is not judged and costs nothing more; one that found either is judged
+// by drainLanded. A refusal is raised as a panic, which drainParked
+// recovers, taking the drain back as it takes back a drain past its
+// allowance: the parked structs are parked again as the drain found them,
+// and the update that filled their gap stands. The apply then returns the
+// refusal as ErrApplyCheckDrain (endRemoteApply).
+func checkDrain(txn *Transaction, j *applyJournal, point *applyPoint, queued bool) {
+	if j.check == nil || !queued || !drainLanded(txn, point) {
 		return
 	}
 	switch panicked, err := j.runCheck(txn); {
