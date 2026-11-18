@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.55.1-sami.22] — 2026-11-18
+
+Adds one opt-in document option and the error it returns. No wire format
+changes, and a document that does not set the option behaves exactly as
+before.
+
+### Added
+
+- **`crdt`: `Doc.SetDiscardRefusedDrain(bool)`** (off by default) — a drain
+  of the pending queue that the document takes back (its apply check refused
+  what the drain landed, or the drain's scans passed their allowance, or its
+  splits the split budget) discards everything the update that filled the
+  gap released instead of parking it again: every parked struct whose
+  dependencies the store, or another such struct, then supplies, and every
+  pending delete range, or the part of one, below the clocks those reach.
+  What the fill did not release stays parked, and the fill stands.
+- **`crdt.DrainDiscardedError`** — the error of such an apply: `Structs` and
+  `Ranges` discarded, `Scanned`, the `Senders` (the origins of the applies
+  that parked what was discarded, which the document records at each commit
+  that parks while the option is on) and the `Cause`. It wraps
+  `ErrApplyCheckDrain`, so a caller that answers an apply refused only in its
+  drain as applied still does.
+
 ## [1.55.1-sami.17] — 2026-11-17
 
 Adds one opt-in document option. No wire format changes, and a document that
