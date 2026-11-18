@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.55.1-sami.24] — 2026-11-18
+
+Makes the apply check cost each apply what the apply touched. No API or wire
+format changes, and the check runs, sees and refuses exactly as before.
+
+### Changed
+
+- **`crdt.WithApplyCheck` no longer walks every client the document holds on
+  each remote apply.** Whether an apply changed the document, which decides
+  whether its check runs, was answered by comparing the clock of every client
+  the store holds with the transaction's, and whether the drain of the
+  pending queue landed anything by a second such walk, on every apply and
+  whatever the check answered. The apply now asks its delete set and the
+  clocks of the clients it added or parked a struct for, the only clients
+  whose clocks it can have moved, and a drain that finds neither parked
+  structs nor parked deletes lands nothing and is not judged. A drain that
+  finds either is judged as before.
+
 ## [1.55.1-sami.17] — 2026-11-17
 
 Adds one opt-in document option. No wire format changes, and a document that

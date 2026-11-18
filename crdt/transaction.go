@@ -144,6 +144,23 @@ func (t *Transaction) changesDoc() bool {
 	return false
 }
 
+// changesDocAmong is changesDoc for a transaction that knows the clients it
+// can have added structs for: it reads only their clocks, so it costs what
+// the transaction touched and not the store's client count. clients may name
+// a client twice, or one whose structs only parked; it must name every client
+// the transaction added a struct for, or the answer is changesDoc's no longer.
+func (t *Transaction) changesDocAmong(clients []ClientID) bool {
+	if len(t.deleteSet.clients) > 0 {
+		return true
+	}
+	for _, client := range clients {
+		if t.doc.store.NextClock(client) != t.beforeState.Clock(client) {
+			return true
+		}
+	}
+	return false
+}
+
 // Ctx returns the context associated with this transaction. Transactions
 // started via Transact return context.Background(); transactions started
 // via TransactContext return the caller's ctx. fn can poll Ctx().Err()
