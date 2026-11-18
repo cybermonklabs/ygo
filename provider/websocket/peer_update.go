@@ -1,6 +1,7 @@
 package websocket
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"sync"
@@ -22,6 +23,14 @@ type PeerUpdateInfo struct {
 	// Origin is the transaction origin apply applies the update with, which
 	// the document's OnUpdate observers receive.
 	Origin any
+	// Context is the context of the request ServeHTTP served the peer's
+	// connection on (r.Context(), with the values the embedder put on it),
+	// the one Server.OnTokenAuthContext receives, so the hook can tell apart
+	// the connections of one room: nothing on it names the connection unless
+	// the embedder puts it there. As for OnTokenAuthContext, neither a client
+	// disconnect nor Shutdown cancels it while the hook runs; only a cancel
+	// the embedder put on r.Context() does.
+	Context context.Context
 }
 
 // PeerUpdateHook is the signature of Server.OnPeerUpdate. apply applies
@@ -127,7 +136,7 @@ func (p *peer) applyPeerUpdate(update []byte) (applied, held bool, closeWith *Pe
 	}
 	var hookErr error
 	p.server.safeHook("OnPeerUpdate", func() {
-		hookErr = hook(PeerUpdateInfo{Room: p.roomName, Doc: p.room.doc, Update: update, Origin: p}, apply)
+		hookErr = hook(PeerUpdateInfo{Room: p.roomName, Doc: p.room.doc, Update: update, Origin: p, Context: p.ctx}, apply)
 	})
 	mu.Lock()
 	returned = true
