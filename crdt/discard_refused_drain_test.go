@@ -129,10 +129,16 @@ func TestUnit_DiscardRefusedDrain_ADeleteRangeIsDiscardedBelowTheReleasedClocksO
 }
 
 // A drain past its scan allowance is discarded as one the check refused is,
-// with the allowance's error as its cause.
+// with the allowance's error as its cause. Under the race detector, which
+// makes each scan several times slower, the bound is an eighth of
+// testScanBound, against 500 items and 300 parked, whose drain still passes
+// it.
 func TestUnit_DiscardRefusedDrain_ADrainPastItsScanAllowanceIsDiscarded(t *testing.T) {
-	const l, n = 5_000, 500
-	doc := chainedList(t, l, WithMaxIntegrateScan(testScanBound))
+	l, n, bound := 5_000, 500, testScanBound
+	if raceEnabled {
+		l, n, bound = 500, 300, testScanBound/8
+	}
+	doc := chainedList(t, l, WithMaxIntegrateScan(bound))
 	doc.SetDiscardRefusedDrain(true)
 	text := doc.GetText("t")
 	require.NoError(t, ApplyUpdateV1(doc, parkedBehindAGap(n), "parker"))
@@ -146,7 +152,7 @@ func TestUnit_DiscardRefusedDrain_ADrainPastItsScanAllowanceIsDiscarded(t *testi
 	assert.Equal(t, n, discarded.Structs)
 	assert.Zero(t, discarded.Ranges)
 	assert.Equal(t, []any{"parker"}, discarded.Senders)
-	assert.GreaterOrEqual(t, discarded.Scanned, testScanBound, "the scans passed the allowance")
+	assert.GreaterOrEqual(t, discarded.Scanned, bound, "the scans passed the allowance")
 	assert.Equal(t, PendingStats{}, doc.PendingStats())
 	assert.Equal(t, uint64(1), doc.StateVector().Clock(99), "the fill stands")
 }
