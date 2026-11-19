@@ -80,8 +80,9 @@ type applyJournal struct {
 	start        applyPoint
 	pending      *pendingUpdate
 	pendingItems []*Item
-	// pendingDead is pending's count of emptied slots as the apply found it.
-	pendingDead int
+	// pendingDead and pendingBytes are pending's count of emptied slots and
+	// of content bytes as the apply found it.
+	pendingDead, pendingBytes int
 	// pendingItemsOwn is whether pendingItems is the journal's own copy of
 	// the queue's slots, made before a park's merge first emptied or moved
 	// them in place (keepQueueFor).
@@ -190,7 +191,7 @@ func beginRemoteApply(txn *Transaction, before StateVector) {
 	if s.pending != nil {
 		j.pending = s.pending
 		j.pendingItems = s.pending.items
-		j.pendingDead = s.pending.dead
+		j.pendingDead, j.pendingBytes = s.pending.dead, s.pending.bytes
 		j.missing = s.pending.missing
 		j.pendingReady = s.pending.ready
 		j.pendingTail, j.pendingTailValid = s.pending.tail, s.pending.tailValid
@@ -623,7 +624,7 @@ func parkAgain(s *StructStore, found *pendingUpdate) *pendingUpdate {
 	for client, clock := range found.missing {
 		missing[client] = max(clock, s.NextClock(client))
 	}
-	return &pendingUpdate{items: items, missing: missing}
+	return &pendingUpdate{items: items, missing: missing, bytes: itemsBytes(items)}
 }
 
 // keepParked records item, a parked item or a struct the running drain added,
@@ -725,7 +726,7 @@ func (j *applyJournal) rollBack(txn *Transaction) {
 		// What the apply appended past the length kept is dropped, and its
 		// slots cleared so the backing array holds none of the refused items.
 		clear(j.pendingItems[len(j.pendingItems):cap(j.pendingItems)])
-		j.pending.items, j.pending.dead = j.pendingItems, j.pendingDead
+		j.pending.items, j.pending.dead, j.pending.bytes = j.pendingItems, j.pendingDead, j.pendingBytes
 		for item, as := range j.queuedAs {
 			*item = as
 		}
@@ -1149,10 +1150,30 @@ func (t *applyTally) integrated(item *Item) {
 		return
 	}
 	t.structs++
-	t.bytes += contentBytes(item.Content)
+	t.bytes += structBytes(item)
+}
+
+// structBytes is the bytes a struct is charged as content: its content
+// (contentBytes) and the map key it carries, which the document keeps for as
+// long as the entry lives.
+func structBytes(item *Item) int {
+	n := contentBytes(item.Content)
 	if item.ParentSub != nil {
-		t.bytes += len(*item.ParentSub)
+		n += len(*item.ParentSub)
 	}
+	return n
+}
+
+// itemsBytes is the content bytes of items, an emptied slot (nil) counting
+// nothing (PendingStats.ContentBytes).
+func itemsBytes(items []*Item) int {
+	n := 0
+	for _, item := range items {
+		if item != nil {
+			n += contentBytes(item.Content)
+		}
+	}
+	return n
 }
 
 // integratedErr is ErrApplyBudget when the apply integrated more structs or
