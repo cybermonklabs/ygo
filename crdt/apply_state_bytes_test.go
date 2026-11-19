@@ -398,10 +398,11 @@ func TestUnit_ApplyReport_StateBytesTakesTheRangeCountsBoundAboveTheState(t *tes
 // edit reaches the room as its own update, some held back and delivered after
 // later ones, so the room parks them behind their gaps, parks deletes of
 // clocks it has not seen, and drains both when the gap is filled; on a room
-// that collects deleted content and on one that keeps it.
+// that collects deleted content and on one that keeps it. Under the race
+// detector it runs a fifth of the seeds (raceSeeds), and both of those rooms.
 func TestUnit_ApplyReport_StateBytesSumsToTheEncodedStateUnderReordering(t *testing.T) {
 	const base = "seed text for the room"
-	for seed := range uint64(8) {
+	for seed := range uint64(max(raceSeeds(8), 2)) {
 		rng := rand.New(rand.NewPCG(seed, 99))
 		room := New(WithClientID(7), WithGC(seed%2 == 0))
 		if err := ApplyUpdateV1(room, baseState(t, base), nil); err != nil {
@@ -609,11 +610,12 @@ func lateWriterEdit(rng *rand.Rand, txn *Transaction, writer, round int) {
 // struct, which the state keeps, counted again for the struct that took its
 // place. No client here holds 255 structs and no parked struct shares clocks
 // with the store, so no bound of the report's applies and the count is the
-// state's to the byte.
+// state's to the byte. The race detector runs a fifth of the seeds
+// (raceSeeds); the 6,000 are the count without it.
 func TestUnit_ApplyReport_StateBytesIsExactForUpdatesThatArriveLate(t *testing.T) {
 	parkedBefore := 0
 	for _, gc := range []bool{false, true} {
-		for seed := uint64(1); seed <= 25; seed++ {
+		for seed := uint64(1); seed <= uint64(raceSeeds(25)); seed++ {
 			rng := rand.New(rand.NewPCG(seed, 0xC0FFEE))
 			room := New(WithClientID(1), WithGC(gc))
 			writers := make([]*Doc, 3)
@@ -668,12 +670,13 @@ func TestUnit_ApplyReport_StateBytesIsExactForUpdatesThatArriveLate(t *testing.T
 // to six bytes, edit and keep their whole state after each edit, and the room
 // takes each state less a random state vector of the writers' clocks. Before
 // the report read the queue's clocks ahead of its merge, 129 of 12,000 such
-// applies reported less than the state grew by. What it reports above the
-// state here is the bound of a struct appended at clocks a parked struct
-// holds (overlapSlack).
+// applies reported less than the state grew by; the race detector runs a
+// fifth of the seeds (raceSeeds), and the 12,000 are the count without it.
+// What it reports above the state here is the bound of a struct appended at
+// clocks a parked struct holds (overlapSlack).
 func TestUnit_ApplyReport_StateBytesNeverFallsShortOfRedeliveredState(t *testing.T) {
 	clients := []ClientID{3, 200, 1 << 40}
-	for seed := range uint64(40) {
+	for seed := range uint64(raceSeeds(40)) {
 		rng := rand.New(rand.NewPCG(seed, 7))
 		writers := make([]*Doc, 0, len(clients))
 		for _, c := range clients {
@@ -786,11 +789,11 @@ func embedsHeld(doc *Doc) int {
 // state and a byte an embed above a direct one, across new writers' sets,
 // which overwrite a key's values and collect them, sets and deletes parked
 // behind their writers' gaps, the fills that land them, embeds and their
-// deletes.
+// deletes. Under the race detector it runs a fifth of the seeds (raceSeeds).
 func TestUnit_ApplyReport_StateBytesTotalStaysAtOrAboveTheStateInBothForms(t *testing.T) {
 	keys := []string{"a", "b", "c"}
 	most, mostF, mostG := 0, 0, 0
-	for seed := range uint64(30) {
+	for seed := range uint64(raceSeeds(30)) {
 		rng := rand.New(rand.NewPCG(seed, 5))
 		room := New(WithClientID(1), WithGC(seed%2 == 0))
 		deleter := New(WithClientID(2))
