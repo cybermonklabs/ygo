@@ -1176,6 +1176,9 @@ func drainPending(txn *Transaction) error {
 		// A refused parked item is dropped without failing the update, since the
 		// drain cannot tell which update carried it.
 		_ = integratePending(txn, items, done, &dropped)
+		if reportsDrain(txn) && drainIntegrated(txn.doc.store, items, done) {
+			noteDrained(txn)
+		}
 		if rec := txn.doc.store.parked; rec != nil && len(rec.items) > 0 {
 			for i, it := range items {
 				if done[i] {

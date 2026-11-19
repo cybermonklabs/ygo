@@ -25,6 +25,13 @@ type ApplyOutcome struct {
 	// Held is whether the document already held all of the update, so the
 	// apply changed and parked nothing (ApplyUpdateV1Held).
 	Held bool
+	// Drained is whether the drain of the pending queue that ends the apply
+	// landed anything: integrated a struct an earlier apply parked, or
+	// applied a deletion one parked. What it landed is in Integrated, and
+	// the update's sender lacks it as every other holder of the document
+	// does, since the content waited outside the document. A drain the
+	// document took back landed nothing.
+	Drained bool
 	// Landed is, for an apply that returned an error, what
 	// ApplyUpdateV1Landed returns: what the call left in the document, the
 	// structs and deletions it parked included; nil otherwise.
@@ -32,17 +39,18 @@ type ApplyOutcome struct {
 }
 
 // ApplyUpdateV1Outcome is ApplyUpdateV1Held that also reports what the
-// commit integrated and whether the update stood with part of it parked
-// (ApplyOutcome), read under the lock the apply holds, so a concurrent apply
-// cannot change the answer. To report Parked it reads the update's structs
-// and delete set once more, without decoding their content, after the apply;
-// to report Integrated it encodes the commit's update when the commit changed
-// the document, as it does for an OnUpdate observer.
+// commit integrated, whether the drain of the pending queue landed anything,
+// and whether the update stood with part of it parked (ApplyOutcome), read
+// under the lock the apply holds, so a concurrent apply cannot change the
+// answer. To report Parked it reads the update's structs and delete set once
+// more, without decoding their content, after the apply; to report
+// Integrated it encodes the commit's update when the commit changed the
+// document, as it does for an OnUpdate observer.
 func ApplyUpdateV1Outcome(doc *Doc, update []byte, origin any) (out ApplyOutcome, err error) {
 	var failed *[]byte
 	doc.Transact(func(txn *Transaction) {
 		txn.Local = false // Yjs readUpdate: transact(..., local=false)
-		txn.integrated = &out.Integrated
+		txn.outcome = &out
 		err = applyV1Txn(txn, update)
 		if err == nil || errors.Is(err, ErrApplyCheckDrain) {
 			out.Parked = updatePastStore(txn.doc.store, update)
@@ -63,6 +71,32 @@ func ApplyUpdateV1Outcome(doc *Doc, update []byte, origin any) (out ApplyOutcome
 		out.Landed = *failed
 	}
 	return out, err
+}
+
+// reportsDrain is whether the drain in hand should look for what it landed:
+// only an apply of ApplyUpdateV1Outcome reports it, and only until it has
+// found something, so every other apply pays nothing for it.
+func reportsDrain(txn *Transaction) bool {
+	return txn.outcome != nil && !txn.outcome.Drained
+}
+
+// noteDrained records on txn's ApplyUpdateV1Outcome that the drain of the
+// pending queue landed something (ApplyOutcome.Drained).
+func noteDrained(txn *Transaction) {
+	txn.outcome.Drained = true
+}
+
+// drainIntegrated is whether the drain integrated one of items, the parked
+// structs it took up: one it took out of the queue (done) whose first clock
+// the store now holds. A struct the drain dropped is out of the queue and
+// not in the store.
+func drainIntegrated(store *StructStore, items []*Item, done []bool) bool {
+	for i, item := range items {
+		if done[i] && store.NextClock(item.ID.Client) > item.ID.Clock {
+			return true
+		}
+	}
+	return false
 }
 
 // updatePastStore reports whether the V1 update carries a struct, other than

@@ -1384,14 +1384,14 @@ func collectAndEncodeLocked(d *Doc, txn *Transaction) (update []byte) {
 	}
 	logged := len(d.updateLogs) > 0 && (changed || parked != nil)
 	var encoded []byte
-	if (changed && (len(d.onUpdate) > 0 || txn.integrated != nil)) || logged {
+	if (changed && (len(d.onUpdate) > 0 || txn.outcome != nil)) || logged {
 		encoded = encodeV1Locked(d, txn.beforeState, cloneDeleteSet(txn.deleteSet))
 		if changed {
 			update = encoded
 		}
 	}
-	if txn.integrated != nil {
-		*txn.integrated = update
+	if txn.outcome != nil {
+		txn.outcome.Integrated = update
 	}
 	if len(d.updateLogs) > 0 {
 		d.appendUpdateLogs(logged, encoded, parked, txn.Origin)
