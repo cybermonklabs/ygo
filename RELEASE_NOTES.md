@@ -18,6 +18,30 @@ that may still be taking a large frame on a slow link can set a longer
 deadline so the code reaches them. The connection stays open, with the peer's
 input dropped, while the frame waits.
 
+## v1.55.1-sami.29
+
+This release fixes a close code still lost to a peer that reads slowly. There
+are no API or wire format changes.
+
+### A close code that reaches a peer still reading when the wait ends
+
+The server writes a close frame and waits up to five seconds for the peer's
+own (v1.55.1-sami.15). Writing the frame returns once it is in the socket's
+buffers, which can hold megabytes of what was written before it, so a browser
+applying a large state, or one on a slow link, can reach the frame after those
+five seconds. The server then closed the socket while the browser was still
+sending awareness, which reset the connection and discarded what the browser
+had not yet received, the close frame among it, so it reported 1006 (abnormal
+closure) and not the code.
+
+When the five seconds pass, the server now shuts the connection's write side,
+which sends what the buffers hold and then the end of the stream, and reads
+and drops what the peer still sends until the peer closes its side,
+`PeerWriteTimeout` passes, or the server shuts down; only then does it close
+the socket. The peer leaves its room when the five seconds pass, as before, so
+meanwhile it holds only its socket. The close for a cancel cause that names a
+close code ends the same way.
+
 ## v1.55.1-sami.15
 
 This release fixes a close code lost on its way to a peer that was still
