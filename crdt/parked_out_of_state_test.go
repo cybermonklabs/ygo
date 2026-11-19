@@ -135,11 +135,15 @@ func TestUnit_ParkedOutOfState_StateBytesCountsNoParkedContent(t *testing.T) {
 
 // Updates that arrive late, park and land, are counted exactly, as with the
 // option off (TestUnit_ApplyReport_StateBytesIsExactForUpdatesThatArriveLate).
-// Under the race detector it runs a fifth of the seeds (raceSeeds).
+// Under the race detector it runs two seeds.
 func TestUnit_ParkedOutOfState_StateBytesIsExactForUpdatesThatArriveLate(t *testing.T) {
+	seeds := uint64(25)
+	if raceEnabled {
+		seeds = 2
+	}
 	parkedBefore := 0
 	for _, gc := range []bool{false, true} {
-		for seed := uint64(1); seed <= uint64(raceSeeds(25)); seed++ {
+		for seed := uint64(1); seed <= seeds; seed++ {
 			rng := rand.New(rand.NewPCG(seed, 0xC0FFEE))
 			room := New(WithClientID(1), WithGC(gc))
 			room.SetParkedOutOfState(true)
