@@ -21,6 +21,23 @@ and a server that does not set it behaves exactly as before.
   still be taking a large frame when their session is revoked can set a
   longer one so the code reaches them.
 
+## [1.55.1-sami.28] — 2026-11-19
+
+Adds a value limit to the three decodes of an update outside an apply. No
+wire format changes, and the existing functions behave exactly as before.
+
+### Added
+
+- **`crdt.DocContainsUpdateV1Limit`, `crdt.DiffUpdateV1Limit` and
+  `crdt.HeldStructsDifferV1Limit`** — `DocContainsUpdateV1`, `DiffUpdateV1`
+  and `HeldStructsDifferV1` with a last argument, `values int`: the decode of
+  the update into a scratch document may decode at most that many values,
+  counted as `ApplyBudget.Decoded` counts an apply's (each struct, each
+  delete range, each lib0 Any value at any depth, each JSON value), and stops
+  past it, before the value past it is built, with an error wrapping the new
+  `crdt.ErrValueLimit`. A limit below zero bounds nothing. The decodes ran
+  with no bound: an apply's budget does not reach their scratch document.
+
 ## [1.55.1-sami.21] — 2026-11-18
 
 Adds one read-only function. No wire format changes, and nothing changes for
