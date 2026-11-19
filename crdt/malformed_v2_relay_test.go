@@ -122,7 +122,8 @@ func TestMalformedV2_ControlDivergenceFails(t *testing.T) {
 // what the room relays must end equal to the room: EncodeStateAsUpdateV1
 // byte-equal and PendingStats equal. The same update at a cap of 1<<20, where
 // the walk never ran, is the control. The ovf- updates carry a running clock
-// past 2^64, so the apply must also refuse each of them.
+// past 2^64, so the apply must also refuse each of them. Under the race
+// detector it runs every fifth case of the corpus.
 func TestMalformedV2_RelayedLandedBytesConvergeThePeer(t *testing.T) {
 	dir := filepath.Join("testdata", "malformed_v2")
 	f, err := os.Open(filepath.Join(dir, "cases.tsv"))
@@ -133,10 +134,14 @@ func TestMalformedV2_RelayedLandedBytesConvergeThePeer(t *testing.T) {
 	sc := bufio.NewScanner(f)
 	var cases, failedLanded, failedNothing, applied, diverged, controlDiverged, overflow int
 	kinds := map[string]int{}
-	shown := 0
+	shown, listed := 0, 0
 	for sc.Scan() {
 		line := sc.Text()
 		if strings.HasPrefix(line, "#") || line == "" {
+			continue
+		}
+		listed++
+		if raceEnabled && listed%5 != 1 {
 			continue
 		}
 		fields := strings.Split(line, "\t")

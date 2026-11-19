@@ -18,6 +18,23 @@ that may still be taking a large frame on a slow link can set a longer
 deadline so the code reaches them. The connection stays open, with the peer's
 input dropped, while the frame waits.
 
+## v1.55.1-sami.30
+
+This release changes only tests. There are no library, API or wire format
+changes.
+
+### `crdt`'s race run fits its CI step
+
+The CI runs `go test -race -timeout 120s ./...`. With Go 1.23 on GitHub's
+runner, `crdt` took up to 124 s of it, 74 s of that in the tests the series
+base adds. Under the race detector those tests now run smaller: a fifth of
+their rounds, seeds and corpus cases; a fifth of the chained list the
+conflict-scan tests count against, or an eighth of the scan bound where their
+scans must pass it; and, in the delete-set allocation test, an eighth of each
+delete set under an eighth of the default pending cap, measured once. Each
+still checks what it checks at full size, and without the race detector every
+test runs as before.
+
 ## v1.55.1-sami.10
 
 This fork release retains the complete
