@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.55.1-sami.29] — 2026-11-19
+
+Fixes a close code still lost to a peer that reads slowly. No API or wire
+format changes.
+
+### Fixed
+
+- **`provider/websocket`: a peer still reading what came before its close
+  frame when the closing handshake's five seconds pass receives the frame.**
+  Writing the frame returns once it is in the socket's buffers, which can hold
+  megabytes of what was written before it, so a peer applying a large state, or
+  one on a slow link, reaches it late. When the five seconds passed, the server
+  closed the socket while that peer was still sending, which reset the
+  connection and discarded what the peer had not yet received, the close frame
+  among it: the peer saw an abnormal closure (1006). The server now shuts the
+  connection's write side when the wait ends, which sends what the buffers hold
+  and then the end of the stream, and reads and drops what the peer still sends
+  until the peer closes its side, `PeerWriteTimeout` passes or the server shuts
+  down. The peer leaves its room when the five seconds pass, as before. The
+  close for a cancel cause that names a close code ends the same way.
+
 ## [1.55.1-sami.15] — 2026-11-14
 
 Fixes a close code lost on its way to a peer that was still sending. No API or

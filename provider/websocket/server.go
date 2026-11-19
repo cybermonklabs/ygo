@@ -2264,9 +2264,17 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// point, a TOCTOU loss returned without cleanup, leaking runWriter (#33).
 	go p.runWriter()
 
+	// answered is whether the read loop ended on the peer's close frame, which
+	// completes a closing handshake the server began.
+	answered := false
 	defer func() {
 		close(p.done) // H1: unblock the context-watcher goroutine
 		p.handleDisconnect()
+		if p.closeSent.Load() && !answered {
+			// The peer may still be reading what came before the close frame.
+			p.lingerClose()
+			return
+		}
 		_ = ws.Close() // close errors during teardown are expected; not logged
 	}()
 
@@ -2278,9 +2286,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		select {
 		case <-ctx.Done():
 			// A cause naming a close code is sent to the peer, with the closing
-			// handshake, before the socket closes (closeForCause).
-			if code, reason, ok := causeClose(context.Cause(ctx)); ok {
-				p.closeForCause(code, reason)
+			// handshake, and the read loop's teardown then ends the connection
+			// (closeForCause).
+			if code, reason, ok := causeClose(context.Cause(ctx)); ok && p.closeForCause(code, reason) {
+				return
 			}
 			p.closeConn()
 		case <-s.shutdownCh:
@@ -2317,6 +2326,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	for {
 		_, msg, err := ws.NextReader()
 		if err != nil {
+			var closed *gws.CloseError
+			answered = errors.As(err, &closed)
 			break
 		}
 		if p.inputClosed.Load() {
