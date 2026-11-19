@@ -417,9 +417,9 @@ func (p *pendingUpdate) apply(pl mergePlan, arrived []*Item, viewed bool) []*Ite
 			case !k.kept():
 				dropped, changed = append(dropped, q), true
 			default:
-				before := contentBytes(q.Item.Content)
+				before := contentBytes(q.Content)
 				keep(q.Item, k)
-				p.bytes += contentBytes(q.Item.Content) - before
+				p.bytes += contentBytes(q.Content) - before
 				if k.end > end {
 					p.cover.insertSpan(q.Item)
 					p.noteTail(q.Item)
@@ -459,7 +459,7 @@ func (p *pendingUpdate) apply(pl mergePlan, arrived []*Item, viewed bool) []*Ite
 // place unless viewed.
 func (p *pendingUpdate) drop(dropped []queued, viewed bool) {
 	for _, q := range dropped {
-		p.bytes -= contentBytes(q.Item.Content)
+		p.bytes -= contentBytes(q.Content)
 		p.items[q.slot] = nil
 	}
 	if p.dead += len(dropped); 2*p.dead < len(p.items) {
