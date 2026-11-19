@@ -219,7 +219,17 @@ func retryPendingDs(txn *Transaction) {
 		return
 	}
 	slices.SortFunc(ready.order, func(a, b ClientID) int { return cmp.Compare(b, a) })
+	// A parked delete lands when it deletes an item, which adds to the span
+	// of the transaction's delete set (ApplyOutcome.Drained).
+	report := reportsDrain(txn)
+	var before uint64
+	if report {
+		before = deletedSpan(txn.deleteSet)
+	}
 	store.parkDeletes(ready.applyToPartial(txn))
+	if report && deletedSpan(txn.deleteSet) != before {
+		noteDrained(txn)
+	}
 }
 
 // applyDecodedDeleteSet parks the ranges it cannot apply only when the decode

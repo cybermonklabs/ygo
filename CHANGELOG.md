@@ -5,6 +5,37 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.55.1-sami.25] — 2026-11-19
+
+Adds one field of `crdt.ApplyOutcome`, and relays what a frame's drain
+landed to that frame's sender under `RelayIntegratedOnly`. No wire format
+changes, and a server without the option behaves exactly as before.
+
+### Added
+
+- **`crdt.ApplyOutcome.Drained`** — whether the drain of the pending queue
+  that ends the apply landed anything: integrated a struct an earlier apply
+  parked, or applied a deletion one parked. A drain the document took back
+  landed nothing.
+
+### Fixed
+
+- **`provider/websocket`: under `Server.RelayIntegratedOnly` the frame that
+  fills another peer's gap is relayed to its own sender too, when its drain
+  landed something.** What waited in the room's pending queue was relayed to
+  nobody, so the sender lacked it as every other peer did, and it alone was
+  not sent the commit that landed it: the room and the other peers held the
+  parked edit, the sender did not. A frame whose drain landed nothing is
+  relayed to the other peers only, as before; the part that integrated of a
+  frame whose apply fails partway follows the same rule.
+
+### Changed
+
+- **`provider/websocket`**: the relay of what a peer's apply integrated builds
+  its frame once, in one buffer of its exact length. It was copied twice more,
+  through `sync.EncodeUpdate` and the pooled encoder, which then kept a buffer
+  as long as the update.
+
 ## [1.55.1-sami.19] — 2026-11-18
 
 Adds two opt-in server options and one apply function. No wire format

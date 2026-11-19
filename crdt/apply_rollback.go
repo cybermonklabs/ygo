@@ -503,6 +503,9 @@ func drainParked(txn *Transaction, drain func()) {
 			clear(s.parked.left[leftLen:])
 			s.parked.left = s.parked.left[:leftLen]
 		}
+		if txn.outcome != nil {
+			txn.outcome.Drained = false // the drain taken back landed nothing
+		}
 		// The failure stays the drain's, the split budget's included: the
 		// drain is taken back, the backlog is parked again whole, and the
 		// update that filled the gap stands.

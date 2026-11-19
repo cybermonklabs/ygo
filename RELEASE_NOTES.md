@@ -1,3 +1,37 @@
+## v1.55.1-sami.25
+
+This release fixes whom the frame that fills a gap is relayed to under
+`Server.RelayIntegratedOnly`, and adds the field of `crdt.ApplyOutcome` that
+decides it. There are no wire format changes, and a server without the option
+behaves exactly as before.
+
+### The frame that fills a gap reaches its own sender too
+
+Under `RelayIntegratedOnly` a frame whose structs park in the room is relayed
+to nobody, and the frame that fills their gap is relayed with what the drain
+of the room's pending queue landed with it. That relay went to every peer but
+the sender of the filling frame, as every relay does. But the sender lacked
+the parked content as much as the others did, since no peer was ever sent it:
+the room and its other peers then held the parked edit, and the sender did
+not, until it next reconnected.
+
+The relay now goes to the sender too when the drain landed something. The
+sender receives its own edit back with it, which a Yjs client applies as a
+no-op. A frame whose drain landed nothing is relayed to the other peers only,
+as before, and the part that integrated of a frame whose apply fails partway
+follows the same rule.
+
+The server reads `crdt.ApplyOutcome.Drained`, which says whether the drain
+that ends the apply integrated a struct an earlier apply parked or applied a
+deletion one parked. A drain the document took back landed nothing. Only an
+apply of `ApplyUpdateV1Outcome` looks for it, and it stops looking once it
+has found something.
+
+The relay frame is also built once now, in one buffer of its exact length.
+It was copied twice more on its way, through `sync.EncodeUpdate` and the
+pooled encoder, and the encoder's pool then kept a buffer as long as the
+update.
+
 ## v1.55.1-sami.19
 
 This release adds two opt-in options of the WebSocket server and the apply
