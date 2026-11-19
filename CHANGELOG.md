@@ -21,6 +21,36 @@ and a server that does not set it behaves exactly as before.
   still be taking a large frame when their session is revoked can set a
   longer one so the code reaches them.
 
+## [1.55.1-sami.27] — 2026-11-19
+
+Adds a judge and a cap for parked delete ranges, a bound on the record of
+who parked them, and the content bytes of the pending queue. No wire format
+changes, and a document that sets neither new option behaves as before.
+
+### Added
+
+- **`crdt.ApplyBudget.MayParkDeletes func(ClientID) bool`** — judges each
+  client a delete range of a remote update would park under, called only
+  when a range parks. When it answers false the apply is refused whole with
+  the new `crdt.ErrParkedDeleteRefused`, inside a `RefusedUpdateError`.
+- **`crdt.WithMaxPendingDeleteRanges(n)` / `Doc.SetMaxPendingDeleteRanges(n)`**
+  — a cap on parked delete ranges apart from `WithMaxPendingItems`: an
+  update that would grow them past it is refused with `ErrPendingCap` before
+  anything changes, and one that parks only ranges already parked is not.
+  **`provider/websocket`: `Server.MaxPendingDeleteRanges`** sets it on each
+  room's document once its stored state has loaded.
+- **`crdt.PendingStats.ContentBytes`** — the content bytes the pending queue
+  holds now, counted as `ApplyBudget.Bytes` counts a struct's content (the
+  map key left out), kept as structs park, merge, drain or are discarded.
+
+### Fixed
+
+- **`crdt`: a document that discards refused drains no longer grows its
+  record of who parked each delete range when a frame is sent again.** It
+  kept a copy of every parked set per committing apply, duplicates included,
+  and pruned by the number of records; it now keeps only the part of each
+  set the pending deletes did not hold, and prunes by the ranges it holds.
+
 ## [1.55.1-sami.22] — 2026-11-18
 
 Adds one opt-in document option and the error it returns. No wire format

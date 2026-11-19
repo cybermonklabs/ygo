@@ -1187,7 +1187,7 @@ func drainPending(txn *Transaction) error {
 		progressed := len(stillPending) < len(items)
 
 		if len(stillPending) > 0 {
-			txn.doc.store.pending = &pendingUpdate{items: stillPending, missing: stillMissing}
+			txn.doc.store.pending = &pendingUpdate{items: stillPending, missing: stillMissing, bytes: itemsBytes(stillPending)}
 		}
 		// Retry pendingDs — freshly-integrated items may now be targets
 		// of previously-parked delete entries.

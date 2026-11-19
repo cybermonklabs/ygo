@@ -18,6 +18,43 @@ that may still be taking a large frame on a slow link can set a longer
 deadline so the code reaches them. The connection stays open, with the peer's
 input dropped, while the frame waits.
 
+## v1.55.1-sami.27
+
+This release bounds parked delete ranges as parked structs are bounded, and
+reports the content bytes of the pending queue. There are no wire format
+changes, and a document that sets neither new option behaves as before.
+
+### A delete range is judged where it parks
+
+A delete range past what a document holds of its client parks until the
+client's structs arrive, whoever sent it. `ApplyBudget.MayParkDeletes`, when
+set, is asked for each client a range of the update would park under, only
+when one would park, so an apply that parks nothing pays nothing. When it
+answers false the apply is refused with `ErrParkedDeleteRefused` and taken
+back whole, as every refusal of a bounded document is.
+
+### A cap on parked delete ranges of their own
+
+Parked ranges were capped only by `WithMaxPendingItems`, the cap sized for
+parked structs. `WithMaxPendingDeleteRanges` (and
+`Server.MaxPendingDeleteRanges`) caps them apart: an update that would grow
+them past it is refused with `ErrPendingCap` before anything changes, and a
+resend of ranges already parked is admitted.
+
+On a document that discards refused drains, the record of who parked each
+range kept a copy of every parked set per apply, so a frame sent again and
+again grew the heap while the parked ranges stayed the same. It now keeps
+only what each apply newly parked, and is pruned by the ranges it holds.
+
+### The content bytes the queue holds
+
+`PendingStats.ContentBytes` is the content bytes the parked structs hold now,
+counted as `ApplyBudget.Bytes` counts a struct's content; the map key is left
+out, since a parked struct holds it only once its origin resolves. A caller
+that charges a room for its queue reads it after each apply, rather than
+summing what each apply added, since drains, merges and discards take content
+out of the queue.
+
 ## v1.55.1-sami.22
 
 This release adds one opt-in document option and the error it returns.
