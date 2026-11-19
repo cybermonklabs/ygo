@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.55.1-sami.30] — 2026-11-19
+
+Shortens the slowest `crdt` tests under the race detector. Tests only: no
+library source, API or wire format changes.
+
+### Tests
+
+- **`crdt`: the series base's slowest tests run smaller under the race
+  detector, and every test runs as before without it.** With Go 1.23 on
+  GitHub's runner, `go test -race ./crdt/` took up to 124 s, past the CI
+  step's 120 s timeout, and the tests the series base adds took 74 s of it.
+  Under `-race` they now run a fifth of their rounds, seeds and corpus cases;
+  the conflict-scan tests count against a fifth of the chained list, or
+  against an eighth of the scan bound where their scans must pass it; and the
+  delete-set allocation test applies an eighth of each delete set, under an
+  eighth of the default pending cap, and measures once. Each still checks what
+  it checks at full size. On the runner they now take 11 to 15 s.
+
 ## [1.55.1-sami.10] — 2026-11-12
 
 Fork release on [1.55.1-sami.9](https://github.com/sjawhar/ygo/releases/tag/v1.55.1-sami.9),
