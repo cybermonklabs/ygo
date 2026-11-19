@@ -21,8 +21,9 @@ input dropped, while the frame waits.
 ## v1.55.1-sami.28
 
 This release adds a value limit to the decodes of an update outside an
-apply. There are no wire format changes, and the existing functions behave
-exactly as before.
+apply, and a server option that sets one for a read-only peer's SyncStep2.
+There are no wire format changes, and the existing functions behave exactly
+as before.
 
 ### A value limit for the scratch decodes
 
@@ -37,6 +38,16 @@ the value past it is built, and returns an error wrapping `ErrValueLimit`. A
 limit below zero bounds nothing, which is what the existing functions pass.
 The three functions keep their signatures, so code that holds one as a
 function value still compiles.
+
+### A value limit for a read-only peer's SyncStep2
+
+On a Hocuspocus-framed connection, a read-only peer's SyncStep2 is answered
+SyncStatus(1) when the room already holds all of its update, and deciding
+that decodes the whole update with `DocContainsUpdateV1`, outside any apply.
+`Server.ReadOnlySyncStep2MaxValues`, when positive, stops that decode past
+that many values (`DocContainsUpdateV1Limit`), before the value past it is
+built, and the step is answered 0, as one that does not decode is. Set it to
+the value limit of the room's applies. 0, the default, bounds nothing.
 
 ## v1.55.1-sami.21
 
