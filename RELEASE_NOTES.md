@@ -1,3 +1,23 @@
+## v1.55.1-sami.28
+
+This release adds a value limit to the decodes of an update outside an
+apply. There are no wire format changes, and the existing functions behave
+exactly as before.
+
+### A value limit for the scratch decodes
+
+`DocContainsUpdateV1`, `DiffUpdateV1` and `HeldStructsDifferV1` each decode
+the whole update into a scratch document before they compare or cut it. A
+document's apply budget (`WithApplyBudget`) bounds what an apply decodes, but
+not these: the scratch document has no budget, so a frame dense in values
+costs whatever it holds. `DocContainsUpdateV1Limit`, `DiffUpdateV1Limit` and
+`HeldStructsDifferV1Limit` take a last argument, `values`: the decode stops
+past that many values, counted as `ApplyBudget.Decoded` counts them, before
+the value past it is built, and returns an error wrapping `ErrValueLimit`. A
+limit below zero bounds nothing, which is what the existing functions pass.
+The three functions keep their signatures, so code that holds one as a
+function value still compiles.
+
 ## v1.55.1-sami.21
 
 This release adds one read-only function to `crdt`. There are no wire format
