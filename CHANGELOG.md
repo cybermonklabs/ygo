@@ -7,8 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.55.1-sami.28] — 2026-11-19
 
-Adds a value limit to the three decodes of an update outside an apply. No
-wire format changes, and the existing functions behave exactly as before.
+Adds a value limit to the three decodes of an update outside an apply, and a
+server option that sets one for a read-only peer's SyncStep2. No wire format
+changes, and the existing functions behave exactly as before.
 
 ### Added
 
@@ -21,6 +22,13 @@ wire format changes, and the existing functions behave exactly as before.
   past it, before the value past it is built, with an error wrapping the new
   `crdt.ErrValueLimit`. A limit below zero bounds nothing. The decodes ran
   with no bound: an apply's budget does not reach their scratch document.
+- **`provider/websocket`: `Server.ReadOnlySyncStep2MaxValues`** — when
+  positive, the decode that answers a read-only peer's SyncStep2 on a
+  Hocuspocus-framed connection (SyncStatus(1) when the room already holds all
+  of its update) stops past that many values, through
+  `crdt.DocContainsUpdateV1Limit`, before the value past it is built, and the
+  step is answered 0, as one that does not decode is. That decode fills a
+  scratch document no apply budget reaches. 0, the default, bounds nothing.
 
 ## [1.55.1-sami.21] — 2026-11-18
 
