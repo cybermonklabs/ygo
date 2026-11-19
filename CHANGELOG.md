@@ -21,6 +21,40 @@ and a server that does not set it behaves exactly as before.
   still be taking a large frame when their session is revoked can set a
   longer one so the code reaches them.
 
+## [1.55.1-sami.26] — 2026-11-19
+
+Changes what `AnswerOnceStored` answers a frame whose apply commits nothing,
+and after a commit that was not stored, and adds one opt-in server option.
+No wire format changes, and a server that sets neither option behaves
+exactly as before.
+
+### Added
+
+- **`provider/websocket`: `Server.ReadOnlySyncStep2MaxBytes`** (0, no limit,
+  by default) — a `SyncStep2` a read-only peer sends, under Sync or
+  SyncReply, whose update is longer than this many bytes is answered
+  `SyncStatus(0)` without being decoded. The answer to a read-only peer's
+  `SyncStep2` decodes its whole update into a scratch document, outside
+  anything an `OnPeerUpdate` hook bounds, since the hook never sees a
+  read-only peer's update.
+
+### Fixed
+
+- **`provider/websocket`: under `Server.AnswerOnceStored` a frame whose apply
+  commits nothing is answered 1 only once the room's newest store still
+  running has stored.** A `SyncStep2`, a resend, or the reply to `ResyncPeer`
+  that carries only what the room holds was answered at once, though what it
+  carries could be in the room only because another frame's commit, of this
+  peer or another, put it there and that commit's store was still running
+  or had failed: the edit was answered applied and never stored. Such a
+  frame, and a read-only peer's `SyncStep2` the room holds, now waits until
+  the store of every commit the room had made when it was answered is known.
+- **`provider/websocket`: under `Server.AnswerOnceStored`, once a commit of a
+  room instance was not stored, every answer the instance sends is 0**, a
+  later commit that stored included: the room holds content no store holds,
+  which any later frame may carry. A room loaded again is a new instance and
+  answers as before.
+
 ## [1.55.1-sami.25] — 2026-11-19
 
 Adds one field of `crdt.ApplyOutcome`, and relays what a frame's drain
