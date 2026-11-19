@@ -1,3 +1,46 @@
+## v1.55.1-sami.26
+
+This release changes what `Server.AnswerOnceStored` answers in two cases,
+and adds one opt-in option of the WebSocket server. There are no wire format
+changes, and a server that sets neither option behaves exactly as before.
+
+### A frame that commits nothing takes the verdict of the store in flight
+
+Under `AnswerOnceStored` the answer to a frame waits until the room's
+persistence has stored the commit the frame made. A frame whose apply commits
+nothing - a `SyncStep2`, a resend, the reply to `ResyncPeer`, or a read-only
+peer's `SyncStep2` - was answered as soon as every answer before it was. But
+what such a frame carries can be in the room only because another commit put
+it there: the same peer's earlier frame, or another peer's, whose store was
+still running. When that store then failed, the frame had been answered 1,
+and a client that keeps an edit until it is answered applied dropped an edit
+no store holds.
+
+Each room instance now numbers every commit its persistence is handed, of
+any origin, and every answer of 1 waits until the store of each commit
+numbered by the time the answer was decided is known: the frame's own commit
+when it made one, and the newest store still running when it made none.
+
+### After a commit that was not stored, every answer is 0
+
+Once a commit of a room instance was not stored, every answer the instance
+sends after is 0, whatever frame it answers and whatever store that frame
+waited for: the room holds content no store holds, and any frame may carry
+it. A room loaded again is a new instance and starts clean. A server whose
+adapter fails a store only alongside failing the room loses nothing by it; a
+coalesced batch whose write failed counts as not stored even if a retry
+stores it later.
+
+### `Server.ReadOnlySyncStep2MaxBytes`
+
+A read-only peer's `SyncStep2` is answered 1 when the room holds all of it,
+which ygo decides by decoding the whole update into a scratch document. No
+`OnPeerUpdate` hook sees a read-only peer's update, so nothing a hook sets
+bounds that decode. With `ReadOnlySyncStep2MaxBytes` set, a `SyncStep2` whose
+update is longer than it is answered 0 without being decoded, under Sync and
+SyncReply alike. A client that keeps rows until such a frame is answered 1
+keeps them. 0, the default, decodes every one, as before.
+
 ## v1.55.1-sami.25
 
 This release fixes whom the frame that fills a gap is relayed to under
