@@ -21,6 +21,28 @@ and a server that does not set it behaves exactly as before.
   still be taking a large frame when their session is revoked can set a
   longer one so the code reaches them.
 
+## [1.55.1-sami.34] — 2026-11-20
+
+Clears the slot each removal from a long-lived list vacates. No API or wire
+format changes.
+
+### Fixed
+
+- **An unsubscribed callback, or any other element removed from a list a
+  document, a type, a persistence or a client keeps, is no longer kept
+  alive by that list.** Each removal used `append(s[:i], s[i+1:]...)`, which
+  leaves the old last element in the backing array past the new length, so
+  an unsubscribed callback and all it captured stayed reachable until a
+  later append overwrote its slot. These removals now use `slices.Delete`,
+  which clears that slot:
+  - `crdt`: the `Doc.OnUpdate`, `Doc.OnAfterTransaction` and
+    `Doc.OnSubdocs` unsubscribes; the `Observe` unsubscribes of `YArray`,
+    `YMap`, `YText`, `YXmlFragment` and `YXmlElement`, and the `ObserveDeep`
+    one; `YXmlElement.DeleteAttribute` on an element not yet in a document;
+    the search markers' drops; and the attribution ranges' merge.
+  - `persistence`: `MemoryPersistence.DeleteSnapshot`.
+  - `provider/client`: the `OnStatus` unsubscribe.
+
 ## [1.55.1-sami.10] — 2026-11-12
 
 Fork release on [1.55.1-sami.9](https://github.com/sjawhar/ygo/releases/tag/v1.55.1-sami.9),
