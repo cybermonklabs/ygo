@@ -18,6 +18,24 @@ that may still be taking a large frame on a slow link can set a longer
 deadline so the code reaches them. The connection stays open, with the peer's
 input dropped, while the frame waits.
 
+## v1.55.1-sami.32
+
+This release adds one read method to the apply check's view. There are no
+wire format changes, and a check that does not call it behaves as before.
+
+### Which run of the apply check judges the drain
+
+A document's apply check (`crdt.WithApplyCheck`) runs at most twice on one
+remote apply: on the update, before the drain of the pending queue, where
+the update changed the document, and on the drain, where the drain landed
+something an earlier apply parked. Both runs received the same origin and a
+view, so a check that judges them differently could only count runs, and an
+apply whose update changed nothing - the document held all of it, or its
+structs only parked - has one run, the drain's.
+
+`ApplyView.Drained` now says which run the check is in: false on the
+update's, true on the drain's, for V1 and V2 applies and sync step 2 alike.
+
 ## v1.55.1-sami.24
 
 This release changes what the apply check costs, and nothing it does. There
