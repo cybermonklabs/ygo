@@ -7,7 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.55.1-sami.31] — 2026-11-20
 
-Fixes two things 1.55.1-sami.27 added. No API or wire format changes.
+Fixes two things 1.55.1-sami.27 added, and a test of 1.55.1-sami.26's
+`AnswerOnceStored` change. No API or wire format changes.
 
 ### Fixed
 
@@ -21,6 +22,14 @@ Fixes two things 1.55.1-sami.27 added. No API or wire format changes.
 - **`crdt.PendingStats.ContentBytes` counts the map key a parked struct
   holds**, as `ApplyBudget.Bytes` does: a struct with no origin holds its key
   from its decode on, and the figure left it out.
+
+### Tests
+
+- **`provider/websocket`: the `AnswerOnceStored` tests of a frame that
+  commits nothing read the relay of the commit in flight once it has
+  arrived.** They read it once that commit's store had begun, but the relay
+  goes out only after the apply returns, so with Go 1.23 under the race
+  detector on GitHub's runner one read an empty document.
 
 ## [1.55.1-sami.27] — 2026-11-19
 

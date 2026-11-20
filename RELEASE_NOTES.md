@@ -1,7 +1,8 @@
 ## v1.55.1-sami.31
 
-This release fixes two things v1.55.1-sami.27 added. There are no API or
-wire format changes.
+This release fixes two things v1.55.1-sami.27 added, and a test of
+v1.55.1-sami.26's `AnswerOnceStored` change that read a relay before it had
+arrived. There are no API or wire format changes.
 
 ### The record of who parked each delete range is bounded
 
@@ -26,6 +27,15 @@ struct with no origin - the first write of a key - holds its key from its
 decode on, as long as its sender made it, so the figure missed those keys.
 It now counts each parked struct as `ApplyBudget.Bytes` does, its map key
 included.
+
+### A test that read a relay before it arrived
+
+Two `AnswerOnceStored` tests of a frame that commits nothing read the relay
+of another peer's commit once that commit's store had begun. The store
+begins in the commit, and the relay goes out only once the apply has
+returned, so on a loaded runner a test could read before the relay arrived:
+on GitHub's runner, with Go 1.23 under the race detector, one read an empty
+document. They now read until the relay has arrived. Only tests change.
 
 ## v1.55.1-sami.27
 
