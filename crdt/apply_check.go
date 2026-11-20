@@ -46,7 +46,24 @@ var errApplyCheckPanicked = errors.New("crdt: the document's apply check panicke
 // before, as with Doc.GetText: a view resolves no name, since naming a root
 // is a write to the document.
 type ApplyView struct {
-	txn *Transaction
+	txn   *Transaction
+	drain bool
+}
+
+// Drained is whether the check is judging what the apply's drain of the
+// pending queue landed, and not what the update itself left. An apply's
+// check runs at most twice: once on the update, before the drain, where the
+// update changed the document, and once on the drain, where the drain landed
+// something an earlier apply had parked. Drained is false on the first of
+// those and true on the second. So the one run of an apply whose update
+// changed nothing, because the document held all of it or its structs only
+// parked, and whose drain landed something, is the drain's, and Drained says
+// so. A run that sees false judges the update, whose refusal rolls the whole
+// apply back; a run that sees true judges the drain, whose refusal takes back
+// the drain alone while the update stands (ErrApplyCheckDrain).
+func (v *ApplyView) Drained() bool {
+	v.live()
+	return v.drain
 }
 
 // ChangedTypes is the types the apply has changed so far, as
@@ -128,7 +145,7 @@ func checkApply(txn *Transaction) error {
 	if j == nil || j.check == nil || !txn.changesDocAmong(j.touched) {
 		return nil
 	}
-	switch panicked, err := j.runCheck(txn); {
+	switch panicked, err := j.runCheck(txn, false); {
 	case panicked:
 		return errApplyCheckPanicked
 	case err != nil:
@@ -150,7 +167,7 @@ func checkDrain(txn *Transaction, j *applyJournal, point *applyPoint, queued boo
 	if j.check == nil || !queued || !drainLanded(txn, point) {
 		return
 	}
-	switch panicked, err := j.runCheck(txn); {
+	switch panicked, err := j.runCheck(txn, true); {
 	case panicked:
 		panic(errApplyCheckPanicked)
 	case err != nil:
@@ -185,13 +202,14 @@ func deletedSpan(ds DeleteSet) uint64 {
 }
 
 // runCheck calls j's check with txn's origin and a view of txn's document,
+// drain telling the check whether it judges the drain (ApplyView.Drained),
 // and returns its error. A panic in the check is kept on txn's apply state,
 // to be raised once the transaction has committed and the lock is released
 // (checkPanicOf), and reported as panicked, so the apply or its drain is
 // taken back first, as for a refusal. The view reads nothing once the check
 // has returned. The caller holds the document's lock.
-func (j *applyJournal) runCheck(txn *Transaction) (panicked bool, err error) {
-	view := &ApplyView{txn: txn}
+func (j *applyJournal) runCheck(txn *Transaction, drain bool) (panicked bool, err error) {
+	view := &ApplyView{txn: txn, drain: drain}
 	defer func() {
 		view.txn = nil
 		if r := recover(); r != nil {
