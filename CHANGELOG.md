@@ -21,6 +21,23 @@ and a server that does not set it behaves exactly as before.
   still be taking a large frame when their session is revoked can set a
   longer one so the code reaches them.
 
+## [1.55.1-sami.31] — 2026-11-20
+
+Fixes two things 1.55.1-sami.27 added. No API or wire format changes.
+
+### Fixed
+
+- **`crdt`: the record of who parked each delete range, on a document that
+  discards refused drains, holds at most twice the parked ranges plus 16.**
+  It kept a set for each apply that newly parked a range and pruned none the
+  pending deletes overlapped, so frames that each park a range next to those
+  parked grew it while one range stayed parked. It now keeps one compacted
+  set per sender, cut to what the pending deletes hold, and each pending
+  range under one sender where the sets of several senders cut it finer.
+- **`crdt.PendingStats.ContentBytes` counts the map key a parked struct
+  holds**, as `ApplyBudget.Bytes` does: a struct with no origin holds its key
+  from its decode on, and the figure left it out.
+
 ## [1.55.1-sami.27] — 2026-11-19
 
 Adds a judge and a cap for parked delete ranges, a bound on the record of
@@ -41,7 +58,8 @@ changes, and a document that sets neither new option behaves as before.
   room's document once its stored state has loaded.
 - **`crdt.PendingStats.ContentBytes`** — the content bytes the pending queue
   holds now, counted as `ApplyBudget.Bytes` counts a struct's content (the
-  map key left out), kept as structs park, merge, drain or are discarded.
+  map key left out until 1.55.1-sami.31), kept as structs park, merge, drain
+  or are discarded.
 
 ### Fixed
 
@@ -50,6 +68,7 @@ changes, and a document that sets neither new option behaves as before.
   kept a copy of every parked set per committing apply, duplicates included,
   and pruned by the number of records; it now keeps only the part of each
   set the pending deletes did not hold, and prunes by the ranges it holds.
+  Frames that each park a new range still grew it until 1.55.1-sami.31.
 
 ## [1.55.1-sami.22] — 2026-11-18
 
