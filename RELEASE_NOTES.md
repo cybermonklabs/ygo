@@ -1,3 +1,36 @@
+## v1.55.1-sami.34
+
+This release clears the slot each removal from a long-lived list vacates.
+There are no API or wire format changes.
+
+### An unsubscribed callback is no longer kept alive
+
+Each of the removals below used `s = append(s[:i], s[i+1:]...)`. It shifts
+the elements after `i` left and shortens the slice, but leaves the old last
+element in the backing array, where the slice still reaches it. Removing the
+newest subscription leaves the removed callback itself there, so the
+callback and everything its closure captured - an update it was handed, a
+buffer, a connection - stayed alive until a later subscription took the
+slot. They now use `slices.Delete`, which clears the vacated slot:
+
+- `crdt/doc.go`: the `OnUpdate`, `OnAfterTransaction` and `OnSubdocs`
+  unsubscribes.
+- `crdt/abstract_type.go`: the `ObserveDeep` unsubscribe.
+- `crdt/yarray.go`, `crdt/ymap.go`, `crdt/ytext.go`: the `Observe`
+  unsubscribes.
+- `crdt/yxml.go`: the `YXmlFragment.Observe` and `YXmlElement.Observe`
+  unsubscribes, and `DeleteAttribute` on an element not yet in a document.
+- `crdt/search_marker.go`: the two drops of a search marker, which holds its
+  item.
+- `crdt/idmap.go`: the merge of two attribution ranges, which hold their
+  attributes.
+- `persistence/memory.go`: `MemoryPersistence.DeleteSnapshot`, whose
+  snapshots hold their state.
+- `provider/client/client.go`: the `OnStatus` unsubscribe.
+
+One removal of the same form is left: `attrState.del` in `crdt/ytext.go`,
+whose keys belong to one text operation and go with it.
+
 ## v1.55.1-sami.10
 
 This fork release retains the complete
