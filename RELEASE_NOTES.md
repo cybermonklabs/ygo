@@ -1,3 +1,24 @@
+## v1.55.1-sami.33
+
+This release stops a room from keeping the peers that parked something and
+left, and adds the method that lets it. There are no wire format changes.
+
+### A peer that leaves is forgotten as the origin of what it parked
+
+A document that discards refused drains (`SetDiscardRefusedDrain`) records
+the origin of the apply that parked each struct and delete range, so that a
+discard can name its senders. The WebSocket server applies a peer's frames
+with the peer as their origin, so the record kept each peer that parked
+something, with its connection and buffers, for as long as what it parked
+stayed parked: about 24 KB a peer, measured, and up to 2×4,096+16 peers in a
+room whose parked ranges are capped at 4,096, close to 200 MB.
+
+`Doc.ForgetParkedOrigin(origin)` drops an origin from the record; what it
+parked stays parked, and a later `DrainDiscardedError` does not name it. The
+server calls it as a peer leaves its room. A server that closes a discard's
+senders closes the same peers as before, since a peer that has left has
+nothing left to close; it is handed only the senders still connected.
+
 ## v1.55.1-sami.31
 
 This release fixes two things v1.55.1-sami.27 added, and a test of
