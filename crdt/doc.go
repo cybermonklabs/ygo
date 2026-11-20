@@ -779,7 +779,8 @@ type Doc struct {
 	applying       *applyTally
 	// discardRefusedDrain is SetDiscardRefusedDrain's setting, and parkedBy
 	// and parkedDsBy, kept only while it is on, the origin of the apply that
-	// parked each struct and delete set the pending queue holds
+	// parked each struct the pending queue holds, and the delete ranges the
+	// applies of each origin parked, pruned to what the pending deletes hold
 	// (recordParkedOrigins); parkedDsByRanges counts parkedDsBy's ranges.
 	discardRefusedDrain bool
 	parkedBy            map[*Item]any
