@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.55.1-sami.32] — 2026-11-20
+
+Adds `ApplyView.Drained`. No wire format changes, and a check that does not
+call it behaves exactly as before.
+
+### Added
+
+- **`crdt.ApplyView.Drained() bool`** — whether the apply check's run judges
+  what the drain of the pending queue landed (true) or what the update itself
+  left (false). The check runs on the update where the update changed the
+  document and on the drain where the drain landed something, so the one run
+  of an apply whose update changed nothing, or only parked, is the drain's.
+
 ## [1.55.1-sami.24] — 2026-11-18
 
 Makes the apply check cost each apply what the apply touched. No API or wire
