@@ -234,3 +234,45 @@ func TestUnit_DiscardRefusedDrain_ARangeKeptUnderAnotherSendersOriginIsNamed(t *
 	assert.ElementsMatch(t, []any{"attacker", "a"}, discarded.Senders)
 	assert.Equal(t, PendingStats{DeleteRanges: 1}, doc.PendingStats(), "the deletions past the y stay parked")
 }
+
+// A forgotten origin is dropped from the record of who parked each struct
+// and delete range, which then holds nothing of it, and a discard of what it
+// parked names it no more, while what it parked stays parked until the
+// discard. Forgetting another origin, or one no map can hold, changes
+// nothing.
+func TestUnit_DiscardRefusedDrain_AForgottenOriginIsNoLongerNamed(t *testing.T) {
+	type sender struct{ name string }
+	for _, c := range []struct {
+		name    string
+		forget  func(attacker *sender) any
+		senders func(attacker *sender) []any
+	}{
+		{"the parking sender", func(attacker *sender) any { return attacker }, func(*sender) []any { return nil }},
+		{"another sender", func(*sender) any { return &sender{"another"} }, func(attacker *sender) []any { return []any{attacker} }},
+		{"an origin no map can hold", func(*sender) any { return []string{"a peer"} }, func(attacker *sender) []any { return []any{attacker} }},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			attacker := &sender{"attacker"}
+			s, doc := discardScenarioBy(t, true, attacker)
+			require.Equal(t, 1, doc.PendingStats().DeleteRanges, "the deletion of the y parks with EVIL")
+
+			forgotten := c.forget(attacker)
+			doc.ForgetParkedOrigin(forgotten)
+			if forgotten == any(attacker) {
+				for item, origin := range doc.parkedBy {
+					assert.NotEqual(t, any(attacker), origin, "the record of parked structs keeps the forgotten origin for %v", item.ID)
+				}
+				assert.Empty(t, doc.parkedDsBy, "the record of parked deletions keeps the forgotten origin")
+			} else {
+				assert.Len(t, doc.parkedDsBy, 1, "forgetting another origin drops nothing")
+			}
+			assert.Equal(t, recordedRanges(doc), doc.parkedDsByRanges)
+			assert.Equal(t, 1, doc.PendingStats().Items, "what the forgotten origin parked stays parked")
+
+			discarded := requireDiscarded(t, ApplyUpdateV1(doc, s.y, "honest"), errCheckRefused)
+			assert.Equal(t, 1, discarded.Structs)
+			assert.Equal(t, 1, discarded.Ranges)
+			assert.ElementsMatch(t, c.senders(attacker), discarded.Senders)
+		})
+	}
+}

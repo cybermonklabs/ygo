@@ -27,7 +27,7 @@ import (
 // at each commit that parks something while the option is on. A document
 // with neither a scan bound, a budget nor an apply check takes no drain
 // back, and the option changes nothing for it. Turning it off forgets the
-// origins recorded.
+// origins recorded, and ForgetParkedOrigin forgets one of them.
 func (d *Doc) SetDiscardRefusedDrain(on bool) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -35,6 +35,38 @@ func (d *Doc) SetDiscardRefusedDrain(on bool) {
 	if !on {
 		d.parkedBy, d.parkedDsBy, d.parkedDsByRanges = nil, nil, 0
 	}
+}
+
+// ForgetParkedOrigin drops origin from the record a document that discards
+// refused drains keeps of the apply that parked each struct and delete range
+// (SetDiscardRefusedDrain), so the document holds no reference to origin and
+// a later DrainDiscardedError does not name it. What origin parked stays
+// parked. A server calls it once the sender whose applies carried origin has
+// gone: the record would otherwise keep that sender, and all it holds, for as
+// long as its parked structs and ranges stay parked, and a sender that has
+// gone has nothing left to close. A nil origin, or one Go cannot compare, is
+// not matched. It costs a pass over the record, which the queue bounds.
+func (d *Doc) ForgetParkedOrigin(origin any) {
+	if origin == nil || !reflect.ValueOf(origin).Comparable() {
+		return
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	for it, by := range d.parkedBy {
+		if by == origin {
+			delete(d.parkedBy, it)
+		}
+	}
+	kept := d.parkedDsBy[:0]
+	for _, by := range d.parkedDsBy {
+		if by.origin == origin {
+			d.parkedDsByRanges -= rangeCount(by.ds)
+			continue
+		}
+		kept = append(kept, by)
+	}
+	clear(d.parkedDsBy[len(kept):])
+	d.parkedDsBy = kept
 }
 
 // DrainDiscardedError is the error of a remote apply whose update stands and
@@ -53,10 +85,11 @@ type DrainDiscardedError struct {
 	// Senders are the origins of the applies that parked what was
 	// discarded: each comparable origin once, in no order. An origin the
 	// document has no record of - a park made before the option was set,
-	// one whose struct a later park's merge replaced in the queue, or one
-	// of several that parked parts of one pending delete range, when the
-	// record keeps that range under another of them (pruneParkedDeletes) -
-	// is missing, and a nil origin is left out.
+	// one whose struct a later park's merge replaced in the queue, one of
+	// several that parked parts of one pending delete range, when the
+	// record keeps that range under another of them (pruneParkedDeletes),
+	// or one the document was told to forget (ForgetParkedOrigin) - is
+	// missing, and a nil origin is left out.
 	Senders []any
 	// Cause is why the drain was taken back: the apply check's refusal
 	// (which wraps ErrApplyCheckDrain itself), or the scan allowance's or
