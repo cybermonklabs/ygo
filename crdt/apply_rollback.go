@@ -1164,13 +1164,14 @@ func structBytes(item *Item) int {
 	return n
 }
 
-// itemsBytes is the content bytes of items, an emptied slot (nil) counting
-// nothing (PendingStats.ContentBytes).
+// itemsBytes is the bytes items hold as ApplyBudget.Bytes counts them
+// (structBytes), an emptied slot (nil) counting nothing
+// (PendingStats.ContentBytes).
 func itemsBytes(items []*Item) int {
 	n := 0
 	for _, item := range items {
 		if item != nil {
-			n += contentBytes(item.Content)
+			n += structBytes(item)
 		}
 	}
 	return n
