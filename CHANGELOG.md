@@ -21,6 +21,28 @@ and a server that does not set it behaves exactly as before.
   still be taking a large frame when their session is revoked can set a
   longer one so the code reaches them.
 
+## [1.55.1-sami.33] — 2026-11-20
+
+A room no longer keeps the peers that parked something and left. Adds
+`Doc.ForgetParkedOrigin`. No wire format changes.
+
+### Added
+
+- **`crdt.Doc.ForgetParkedOrigin(origin)`** — drops an origin from the
+  record a document that discards refused drains keeps of who parked each
+  struct and delete range. What it parked stays parked, and a later
+  `DrainDiscardedError` does not name it.
+
+### Fixed
+
+- **`provider/websocket`: a peer that leaves is forgotten as the origin of
+  what it parked.** The record kept each peer that parked something, and its
+  connection and buffers, for as long as what it parked stayed parked: about
+  24 KB a peer, and up to 2×4,096+16 peers a room under a cap of 4,096
+  parked ranges. The peer's teardown now calls `ForgetParkedOrigin`, so a
+  discard's `Senders` no longer names a peer that has left, which has nothing
+  left to close.
+
 ## [1.55.1-sami.31] — 2026-11-20
 
 Fixes two things 1.55.1-sami.27 added, and a test of 1.55.1-sami.26's
