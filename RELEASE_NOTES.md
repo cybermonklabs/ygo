@@ -1,3 +1,32 @@
+## v1.55.1-sami.31
+
+This release fixes two things v1.55.1-sami.27 added. There are no API or
+wire format changes.
+
+### The record of who parked each delete range is bounded
+
+On a document that discards refused drains, the record of who parked each
+delete range kept a set for each apply that newly parked a range, and its
+prune kept every set the pending deletes still overlapped. Frames that each
+park a range next to those already parked compact into one pending range,
+but each added a set, so the record grew with every frame - 50,000 one-clock
+frames kept 50,000 sets for one parked range - and every commit past its
+bound walked all of it. It now keeps one set per sender, compacted as the
+pending deletes are and cut to what they still hold; where the sets of
+several senders still cut the pending ranges finer, it keeps each pending
+range under one of them. After every apply it holds at most twice the parked
+ranges plus 16. A discard still names a sender for each range it discards
+that one was recorded for, but where several senders parked parts of one
+range it can name only one of them.
+
+### The map key a parked struct holds is in the queue's figure
+
+`PendingStats.ContentBytes` left out the map key of a parked struct. A
+struct with no origin - the first write of a key - holds its key from its
+decode on, as long as its sender made it, so the figure missed those keys.
+It now counts each parked struct as `ApplyBudget.Bytes` does, its map key
+included.
+
 ## v1.55.1-sami.27
 
 This release bounds parked delete ranges as parked structs are bounded, and
@@ -24,16 +53,17 @@ resend of ranges already parked is admitted.
 On a document that discards refused drains, the record of who parked each
 range kept a copy of every parked set per apply, so a frame sent again and
 again grew the heap while the parked ranges stayed the same. It now keeps
-only what each apply newly parked, and is pruned by the ranges it holds.
+only what each apply newly parked, so the same frame sent again records
+nothing; frames that each park a new range still grew it, until
+v1.55.1-sami.31 bounded it by the parked ranges.
 
 ### The content bytes the queue holds
 
 `PendingStats.ContentBytes` is the content bytes the parked structs hold now,
 counted as `ApplyBudget.Bytes` counts a struct's content; the map key is left
-out, since a parked struct holds it only once its origin resolves. A caller
-that charges a room for its queue reads it after each apply, rather than
-summing what each apply added, since drains, merges and discards take content
-out of the queue.
+out (v1.55.1-sami.31 counts it). A caller that charges a room for its queue
+reads it after each apply, rather than summing what each apply added, since
+drains, merges and discards take content out of the queue.
 
 ## v1.55.1-sami.22
 
