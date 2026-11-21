@@ -143,12 +143,11 @@ func (p *peer) handleMessage(data []byte) {
 		p.sendAwareness(p.room.awareness.EncodeUpdate(nil))
 
 	case msgSyncReply:
-		// Hocuspocus tag 4 (#55). Same payload shape as msgSync but the
-		// sender explicitly does NOT want a reply — used by the original
-		// requester to apply a SyncStep2 without bouncing another step-1
-		// back, which would cause an infinite ping-pong on noisy links.
-		// Apply locally and broadcast updates, but never reply with our
-		// own step-1.
+		// Hocuspocus tag 4 (#55). The same payload shapes as msgSync, but a
+		// frame that triggers no step-1 back ("same as Sync, but won't
+		// trigger another SyncStep1", Hocuspocus's types.ts), so a link
+		// cannot ping-pong step-1s. A SyncStep2 or update is applied and
+		// broadcast, and we never reply with our own step-1.
 		payload := dec.RemainingBytes()
 		subType, update, err := ygsync.ReadSyncMessage(payload)
 		if err != nil {
@@ -156,11 +155,14 @@ func (p *peer) handleMessage(data []byte) {
 			return
 		}
 		if subType == ygsync.MsgSyncStep1 {
-			// Hocuspocus's SyncReply never carries a step-1, so one is
-			// dropped, a read-only peer's as before (#59). Applied, it built
-			// the room's whole state against the sender's state vector,
-			// outside Server.OnStateAnswer, and threw it away; relayed, it
-			// asked every other peer for its whole document.
+			// Hocuspocus's own server sends its step-1 this way, and answers
+			// one it receives with a step-2 to the sender alone, relaying
+			// nothing. This server built that step-2 outside
+			// Server.OnStateAnswer's bound and threw it away, and relayed the
+			// step-1 to every other peer, each of which answered with a step-2
+			// against the state vector it carried; the sender got nothing. It
+			// is dropped, which keeps the bound, a read-only peer's as before
+			// (#59).
 			p.server.log().Debug("discarded sync(reply) message: a SyncStep1",
 				"room", p.roomName)
 			return

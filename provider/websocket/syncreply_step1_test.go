@@ -15,10 +15,12 @@ import (
 )
 
 // A SyncReply (Hocuspocus tag 4) that carries a SyncStep1 is dropped, a
-// writable peer's as a read-only peer's: Hocuspocus's SyncReply never carries
-// one. The server used to apply it, which encodes the room's whole state
-// against the sender's state vector and throws it away, and relay it to every
-// other peer, each of which answers with its whole document.
+// writable peer's as a read-only peer's. Hocuspocus's own server sends its
+// SyncStep1 this way, and answers one it receives with a SyncStep2 to the
+// sender alone. The server used to build that SyncStep2 outside
+// Server.OnStateAnswer's bound and throw it away, and relay the SyncStep1 to
+// every other peer, each of which answered with a SyncStep2 against the state
+// vector it carried; the sender got nothing.
 //
 // The room's document is held locked while the step arrives, so a server that
 // reads it to encode an answer stalls the sender's next frame, a Ping, until
