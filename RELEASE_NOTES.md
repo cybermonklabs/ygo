@@ -18,6 +18,35 @@ that may still be taking a large frame on a slow link can set a longer
 deadline so the code reaches them. The connection stays open, with the peer's
 input dropped, while the frame waits.
 
+## v1.55.1-sami.36
+
+This release adds one optional callback to the apply budget. There are no
+wire format changes, and a budget that does not set it behaves as before.
+
+### A callback between an apply's integrate and its commit's observers
+
+A remote apply integrates its update, runs the apply check, commits, and
+only then runs the commit's observers. An owner that holds something for
+the apply - memory it reserved for the decode, a slot of a shared pool -
+could give it back only once the apply returned, after every observer. An
+observer can block for long: one that hands each update to a store through
+a bounded queue waits while that queue is full. The owner held the apply's
+resources for that whole wait, although by then the apply's decode is
+garbage and the structs it integrated are the document's.
+
+`ApplyBudget.Integrated`, when set, is called once for the apply the budget
+was returned for, after the update has integrated and the apply check has
+passed it, and before the first observer: on the applying goroutine, with
+the document lock released. It is called for every apply that commits,
+whether or not it changed the document, and for one whose drain of the
+pending queue was taken back, since its update stands. It is not called for
+an apply that is refused or rolled back; its caller then gives back what it
+holds when the apply returns. A panic in it is raised once the observers
+have run. Nil, the default, calls nothing and allocates nothing.
+
+When updates are stored, what is stored, and the observers' order are
+unchanged.
+
 ## v1.55.1-sami.35
 
 This release fixes two ways a room held parked content its figures did not

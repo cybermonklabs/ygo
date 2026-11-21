@@ -21,6 +21,21 @@ and a server that does not set it behaves exactly as before.
   still be taking a large frame when their session is revoked can set a
   longer one so the code reaches them.
 
+## [1.55.1-sami.36] — 2026-11-21
+
+Adds `ApplyBudget.Integrated`. No wire format changes.
+
+### Added
+
+- **`crdt.ApplyBudget.Integrated`** — a callback for the one apply the
+  budget is returned for, called after the update has integrated and the
+  apply check has passed it and before the commit's first observer, on the
+  applying goroutine with the document lock released. It is not called for
+  an apply that is refused or rolled back. It lets the owner give back what
+  it holds for the apply, such as memory reserved for its decode, before an
+  observer that may block, such as one that hands the update to a store
+  through a bounded queue. Nil, the default, changes nothing.
+
 ## [1.55.1-sami.35] — 2026-11-21
 
 Two fixes to what a room holds of parked content, and one to the WebSocket
