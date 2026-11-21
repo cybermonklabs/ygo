@@ -21,6 +21,33 @@ and a server that does not set it behaves exactly as before.
   still be taking a large frame when their session is revoked can set a
   longer one so the code reaches them.
 
+## [1.55.1-sami.35] — 2026-11-21
+
+Two fixes to what a room holds of parked content, and one to the WebSocket
+server's SyncReply. No API or wire format changes.
+
+### Fixed
+
+- **`crdt`: the record of who parked each struct, on a document that
+  discards refused drains, holds only structs the pending queue holds.** A
+  struct that left the queue stayed in the record, which was pruned only past
+  twice the queue's structs plus 16. A peer that parks a string behind a gap
+  and then a deleted struct that covers it adds one struct to the queue and
+  two to the record, so the prune never ran and each dropped string stayed
+  reachable, up to 4,096 strings of about 900 KiB in a room. A struct now
+  leaves the record when a merge drops it, a drain lands it or a refused
+  drain discards it.
+- **`crdt`: a parked string a merge cuts at its front holds only the part it
+  keeps.** The part kept was a substring that kept the whole string
+  reachable, while `PendingStats.ContentBytes` counted only the part. It now
+  has bytes of its own.
+- **`provider/websocket`: a SyncReply that carries a SyncStep1 is dropped.**
+  Hocuspocus's SyncReply never carries one. From a writable peer the server
+  encoded the room's whole state against the sender's state vector, outside
+  `Server.OnStateAnswer`, threw it away, and relayed the step 1 to every
+  other peer, each of which answered with its whole document. It is now
+  dropped and logged at debug level, as a read-only peer's already was.
+
 ## [1.55.1-sami.33] — 2026-11-20
 
 A room no longer keeps the peers that parked something and left. Adds
