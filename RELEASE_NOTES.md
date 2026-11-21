@@ -1,8 +1,8 @@
 ## v1.55.1-sami.35
 
 This release fixes two ways a room held parked content its figures did not
-show, and one frame that made the server encode the room's whole state for
-nothing. There are no API or wire format changes.
+show, and one frame the server answered outside `Server.OnStateAnswer`'s
+bound and relayed to every peer. There are no API or wire format changes.
 
 ### The record of who parked each struct holds only what the queue holds
 
@@ -30,13 +30,15 @@ dropped whole.
 
 ### A SyncReply that carries a SyncStep1 is dropped
 
-Hocuspocus's SyncReply (tag 4) never carries a sync step 1. The WebSocket
-server applied one from a writable peer, which encoded the room's whole
-state against the sender's state vector, outside `Server.OnStateAnswer`, and
-threw it away, and then relayed the step 1 to every other peer, each of which
-answered with its whole document. Such a frame is now dropped and logged at
-debug level, as a read-only peer's already was. A SyncReply carrying a
-SyncStep2 or an Update is applied and relayed as before.
+Hocuspocus's own server sends its sync step 1 in a SyncReply (tag 4), and
+answers one it receives with a SyncStep2 to the sender alone, relaying
+nothing. The WebSocket server, given one by a writable peer, built that
+SyncStep2 outside `Server.OnStateAnswer`'s bound and threw it away, and
+relayed the step 1 to every other peer, each of which answered with a
+SyncStep2 against the state vector it carried; the sender got nothing. Such
+a frame is now dropped, which keeps the bound, and logged at debug level; a
+read-only peer's was already dropped. A SyncReply carrying a SyncStep2 or an
+Update is applied and relayed as before.
 
 ## v1.55.1-sami.33
 
