@@ -42,11 +42,13 @@ server's SyncReply. No API or wire format changes.
   reachable, while `PendingStats.ContentBytes` counted only the part. It now
   has bytes of its own.
 - **`provider/websocket`: a SyncReply that carries a SyncStep1 is dropped.**
-  Hocuspocus's SyncReply never carries one. From a writable peer the server
-  encoded the room's whole state against the sender's state vector, outside
-  `Server.OnStateAnswer`, threw it away, and relayed the step 1 to every
-  other peer, each of which answered with its whole document. It is now
-  dropped and logged at debug level, as a read-only peer's already was.
+  Hocuspocus's own server sends its SyncStep1 in a SyncReply (tag 4), and
+  answers one it receives with a SyncStep2 to the sender alone. From a
+  writable peer this server built that SyncStep2 outside
+  `Server.OnStateAnswer`'s bound, threw it away, and relayed the step 1 to
+  every other peer, each of which answered with a SyncStep2 against the state
+  vector it carried. It is now dropped, which keeps the bound, and logged at
+  debug level; a read-only peer's was already dropped.
 
 ## [1.55.1-sami.33] — 2026-11-20
 
