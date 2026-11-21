@@ -155,19 +155,17 @@ func (p *peer) handleMessage(data []byte) {
 			p.discardMalformedSync(err)
 			return
 		}
-		if subType != ygsync.MsgSyncStep1 {
-			p.applySyncUpdate(subType, update, payload)
+		if subType == ygsync.MsgSyncStep1 {
+			// Hocuspocus's SyncReply never carries a step-1, so one is
+			// dropped, a read-only peer's as before (#59). Applied, it built
+			// the room's whole state against the sender's state vector,
+			// outside Server.OnStateAnswer, and threw it away; relayed, it
+			// asked every other peer for its whole document.
+			p.server.log().Debug("discarded sync(reply) message: a SyncStep1",
+				"room", p.roomName)
 			return
 		}
-		if p.readOnly {
-			return // #59: read-only peers' SyncReply frames are dropped.
-		}
-		if _, err := ygsync.ApplySyncMessage(p.room.doc, payload, p); err != nil {
-			p.server.log().Debug("discarded unappliable sync(reply) message",
-				"room", p.roomName, "err", err)
-			return
-		}
-		p.broadcastSync(payload)
+		p.applySyncUpdate(subType, update, payload)
 
 	case msgStateless:
 		// Hocuspocus tag 5 (#55). Arbitrary out-of-band signal addressed
