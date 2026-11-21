@@ -1183,6 +1183,13 @@ func drainPending(txn *Transaction) error {
 				}
 			}
 		}
+		if txn.doc.discardRefusedDrain {
+			for i, it := range items {
+				if done[i] {
+					txn.noteGone(it)
+				}
+			}
+		}
 		stillPending, stillMissing := unresolvedPending(txn.doc.store, items, done)
 		progressed := len(stillPending) < len(items)
 

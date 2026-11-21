@@ -490,11 +490,12 @@ func drainParked(txn *Transaction, drain func()) {
 	point := pointNow(txn, s.StateVector())
 	pending, pendingDs, pendingMoves := s.pending, parkedDeletesOf(s), pendingMovesOf(s)
 	// The structs a drain takes out of the queue are listed in the park
-	// record (#340's transactionParked.left); a drain taken back parks them
-	// again, so the list goes back to its length as the drain began.
-	leftLen := 0
+	// record (#340's transactionParked.left, and gone); a drain taken back
+	// parks them again, so the lists go back to their lengths as the drain
+	// began.
+	leftLen, goneLen := 0, 0
 	if s.parked != nil {
-		leftLen = len(s.parked.left)
+		leftLen, goneLen = len(s.parked.left), len(s.parked.gone)
 	}
 	j.drain, j.at = &point, &point
 	if j.drainOwnAllowance {
@@ -516,6 +517,8 @@ func drainParked(txn *Transaction, drain func()) {
 		if s.parked != nil {
 			clear(s.parked.left[leftLen:])
 			s.parked.left = s.parked.left[:leftLen]
+			clear(s.parked.gone[goneLen:])
+			s.parked.gone = s.parked.gone[:goneLen]
 		}
 		pendingMoves.restore(s)
 		if txn.doc.discardRefusedDrain {
