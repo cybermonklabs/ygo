@@ -278,6 +278,12 @@ func parkWithinUpdatePending(txn *Transaction, pending []*Item) error {
 			// it found it.
 			j.keepQueueFor(s.pending, pl)
 		}
+		// A queued struct the merge drops leaves the queue for good.
+		for i, q := range pl.held {
+			if !pl.keepHeld[i].kept() {
+				txn.noteGone(q.Item)
+			}
+		}
 		// A GC struct the merge grew gains deleted-range clocks, which the
 		// document holds as a range record, not as bytes of content. A widened
 		// range is no heap, so the grown span is not charged; the arriving GC
