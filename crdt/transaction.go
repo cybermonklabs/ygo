@@ -764,6 +764,10 @@ type boundedApplyState struct {
 	// (noteApplyReport, reportApply).
 	report    ApplyReport
 	reportDue bool
+	// integrated is the apply's ApplyBudget.Integrated, kept at the end of
+	// an apply that will commit (endRemoteApply) and called by the commit
+	// once it has released the lock, before the observers (runIntegrated).
+	integrated func()
 	// drainRefused is the apply's error when the document's apply check
 	// refused what the drain landed and the drain was taken back while the
 	// update stands, and checkPanic is what the check panicked with, raised

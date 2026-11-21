@@ -372,6 +372,9 @@ func endRemoteApply(txn *Transaction, err error) error {
 	}
 	if err == nil {
 		noteApplyReport(txn, j)
+		// The apply will commit: its owner's callback runs once the commit
+		// has released the lock, before the observers (runIntegrated).
+		state.integrated = j.tally.budget.Integrated
 		if state.drainTakenBack {
 			// The update stands; a drain taken back on a document that
 			// discards refused drains discarded what its fill released
@@ -398,6 +401,23 @@ func endRemoteApply(txn *Transaction, err error) error {
 		Split:   j.tally.split,
 		Root:    j.tally.root,
 	}
+}
+
+// runIntegrated calls the ApplyBudget.Integrated callback of txn's remote
+// apply, kept when the apply reached its end with no error (endRemoteApply),
+// and returns what it panicked with. The commit calls it after releasing the
+// document lock and before the observers; an apply refused or rolled back
+// kept none, so it calls nothing for one.
+func runIntegrated(txn *Transaction) (panicked any) {
+	state := txn.boundedApply
+	if state == nil || state.integrated == nil {
+		return nil
+	}
+	fn := state.integrated
+	state.integrated = nil
+	defer func() { panicked = recover() }()
+	fn()
+	return nil
 }
 
 // noteApplyReport keeps what txn's apply decoded and added for the report

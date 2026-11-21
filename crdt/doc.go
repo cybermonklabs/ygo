@@ -363,6 +363,25 @@ type ApplyBudget struct {
 	// an apply that parks nothing never calls it. Nil lets every client
 	// park, as before.
 	MayParkDeletes func(ClientID) bool
+	// Integrated, when set, is called once for the apply, after it has
+	// integrated the update and the document's apply check, if any, has
+	// passed it, and before the commit's observers run: the types'
+	// observers, OnAfterTransaction, OnUpdate and OnSubdocs. It runs on the
+	// goroutine that applies, with the document lock released, for every
+	// apply that commits, whether or not the apply changed the document; an
+	// apply whose drain of the pending queue was taken back commits, since
+	// its update stands. It is not called for an apply that is refused or
+	// rolled back, nor when a panic leaves the commit: its caller then gives
+	// back what it holds when the apply returns.
+	//
+	// It is for what the caller holds for this one apply - memory reserved
+	// for its decode, a slot of a shared pool - which it can give back here
+	// rather than when the apply returns. By now the apply's decode is
+	// garbage and the structs it integrated are the document's, while an
+	// observer can block for long after: one that hands each update to a
+	// store through a bounded queue waits while the queue is full. A panic
+	// in it is raised once the observers have run. Nil calls nothing.
+	Integrated func()
 }
 
 // WithApplyBudget bounds what each remote update may decode and add by an
@@ -411,6 +430,11 @@ type ApplyBudget struct {
 // remote update carrying a subdocument or a move. budget runs under the
 // document's lock, so it must not call the document. Local transactions are
 // never bounded.
+//
+// The budget can also carry a callback for the one apply it is returned for:
+// ApplyBudget.Integrated, called once the apply has integrated and before the
+// commit's observers, so the owner can give back what it holds for that
+// apply before an observer that may block.
 func WithApplyBudget(budget func(origin any) ApplyBudget) DocOption {
 	return func(d *Doc) { d.applyBudget = budget }
 }
@@ -1602,6 +1626,13 @@ func (d *Doc) transactInternal(ctx context.Context, fn func(*Transaction) error,
 		// mutating d.share unsynchronized. See Transaction.done.
 		txn.done = true
 		d.mu.Unlock()
+
+		// The owner's callback for a remote apply that committed, before any
+		// observer runs and with the lock released (ApplyBudget.Integrated).
+		// A panic in it is raised after the observers.
+		if r == nil {
+			r = runIntegrated(txn)
+		}
 
 		if cleanup {
 			// Runs even if an observer panics, as Yjs runs the cleanup.
