@@ -1,3 +1,43 @@
+## v1.55.1-sami.35
+
+This release fixes two ways a room held parked content its figures did not
+show, and one frame that made the server encode the room's whole state for
+nothing. There are no API or wire format changes.
+
+### The record of who parked each struct holds only what the queue holds
+
+A document that discards refused drains (`SetDiscardRefusedDrain`) records
+the origin of the apply that parked each struct. A struct that left the
+queue stayed in the record, which was pruned only once it named more than
+twice the structs the queue held, plus 16. A peer could keep it below that:
+each pass parks a string of about 900 KiB behind a gap and then a small
+deleted struct that covers it, so the merge drops the string, and the queue
+gains one struct where the record gains two. Every dropped string stayed
+reachable from the record, up to 4,096 of them in a room, while the room's
+figures counted none. A struct now leaves the record when it leaves the
+queue: when a merge drops it, a drain lands it or a refused drain discards
+it.
+
+### A parked string cut at its front holds only what it keeps
+
+When a merge cuts a parked string to the part it still holds, the part kept
+was a substring of the original and kept the whole original reachable, while
+`PendingStats.ContentBytes` counted only the part. The part kept now has
+bytes of its own. No other content keeps more than its part when cut:
+`ContentAny` and `ContentJSON` copy the values they keep, `ContentDeleted`
+holds no bytes, and every other content is one clock long and is kept or
+dropped whole.
+
+### A SyncReply that carries a SyncStep1 is dropped
+
+Hocuspocus's SyncReply (tag 4) never carries a sync step 1. The WebSocket
+server applied one from a writable peer, which encoded the room's whole
+state against the sender's state vector, outside `Server.OnStateAnswer`, and
+threw it away, and then relayed the step 1 to every other peer, each of which
+answered with its whole document. Such a frame is now dropped and logged at
+debug level, as a read-only peer's already was. A SyncReply carrying a
+SyncStep2 or an Update is applied and relayed as before.
+
 ## v1.55.1-sami.33
 
 This release stops a room from keeping the peers that parked something and
