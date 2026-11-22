@@ -646,6 +646,18 @@ During `Server.Shutdown`, the in-flight `ExecContext` call sees the context canc
 
 This pattern mirrors `io.WriterTo`, `http.CloseNotifier`, and `database/sql/driver.QueryerContext` in the standard library — extension interfaces that callers can opt into without breaking older implementations.
 
+### The room load's context
+
+An adapter can also implement `PersistenceAdapterLoadContext`:
+
+```go
+type PersistenceAdapterLoadContext interface {
+    LoadDocContext(ctx context.Context, room string) ([]byte, error)
+}
+```
+
+The server then loads a room with `LoadDocContext` instead of `LoadDoc`, and passes the context of the call that created the room: the request context of a peer's connection (`ServeHTTP`), or the `ctx` given to `Server.Apply` or `Server.Inject`. The load sees that caller's values, deadline and cancellation. The Postgres adapter above could pass it to `QueryRowContext`. One load serves every caller that waits for the room, so an error it returns, a cancellation included, fails the load for all of them, and the next call for the room loads it again.
+
 ---
 
 ## Shutdown durability, and what it does not promise (v1.49.0+)
@@ -755,11 +767,11 @@ before `ctx` expires, no peer commits after it.
   finish. `Shutdown` waits for every `ServeHTTP` call in progress, and so for
   every hook it calls (`Authorize` or `AuthFunc`, `OnLoadDocument`,
   `OnFirstPeer`, `OnTokenAuth`, `OnPeerUpdate`, `OnStateless`, `OnLastPeer`,
-  `OnUnloadDocument`), for an adapter `LoadDoc` of a room the connection
-  loads, and for a relay `RoomActivated` or `RoomDeactivated` call that the
-  connection started before `Shutdown` began. One that blocks holds `Shutdown`
-  until it returns or `ctx` expires. Before v1.56.0 `Shutdown` returned `nil`
-  while they still ran.
+  `OnUnloadDocument`), for an adapter's `LoadDoc` or `LoadDocContext` of a
+  room the connection loads, and for a relay `RoomActivated` or
+  `RoomDeactivated` call that the connection started before `Shutdown` began.
+  One that blocks holds `Shutdown` until it returns or `ctx` expires. Before
+  v1.56.0 `Shutdown` returned `nil` while they still ran.
 - **Writes for a room the server already considers gone.** Nothing calls
   `doc.Destroy` on teardown, so a caller that retains the `*crdt.Doc` (from
   `GetDoc`, or from an `OnLoadDocument` hook) keeps its persistence observer

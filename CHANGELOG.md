@@ -21,6 +21,23 @@ and a server that does not set it behaves exactly as before.
   still be taking a large frame when their session is revoked can set a
   longer one so the code reaches them.
 
+## [1.55.1-sami.37] — 2026-11-22
+
+Adds one optional persistence interface. No wire format changes, and an
+adapter that does not implement it is loaded exactly as before.
+
+### Added
+
+- **`provider/websocket`: `PersistenceAdapterLoadContext`** — an optional
+  extension to `PersistenceAdapter`. An adapter that implements it loads a
+  room with `LoadDocContext(ctx, room)` instead of `LoadDoc`, where `ctx` is
+  the context of the call that created the room: the request context of a
+  peer's connection, or the `ctx` given to `Server.Apply` or `Server.Inject`.
+  The load sees that caller's values, deadline and cancellation. One load
+  serves every caller that waits for the room, so an error it returns, a
+  cancellation included, fails the load for all of them, and the next call for
+  the room loads it again.
+
 ## [1.55.1-sami.10] — 2026-11-12
 
 Fork release on [1.55.1-sami.9](https://github.com/sjawhar/ygo/releases/tag/v1.55.1-sami.9),
