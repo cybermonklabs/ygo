@@ -1,3 +1,21 @@
+## v1.55.1-sami.37
+
+This release adds one optional interface to `provider/websocket`. There are no
+wire format changes, and an adapter that does not implement it is loaded
+exactly as before.
+
+### The room load's context
+
+An adapter that implements `PersistenceAdapterLoadContext` loads a room with
+`LoadDocContext(ctx, room)` instead of `LoadDoc`. `ctx` is the context of the
+call that created the room: the request context of a peer's connection
+(`ServeHTTP`), or the `ctx` given to `Server.Apply` or `Server.Inject`. Before
+this release a load had no context, so an adapter could not bound a wait in it
+by the caller's deadline, or read a value the caller put on its context. One
+load serves every caller that waits for the room: an error the adapter
+returns, a cancellation included, fails the load for all of them, and the next
+call for the room loads it again.
+
 ## v1.55.1-sami.10
 
 This fork release retains the complete
