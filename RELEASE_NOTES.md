@@ -18,6 +18,30 @@ that may still be taking a large frame on a slow link can set a longer
 deadline so the code reaches them. The connection stays open, with the peer's
 input dropped, while the frame waits.
 
+## v1.55.1-sami.38
+
+This release fixes the memory one record of a document keeps. There are no
+API or wire format changes.
+
+### The record of who parked each struct shrinks with the queue
+
+A document that discards refused drains (`SetDiscardRefusedDrain`) keeps the
+origin of the apply that parked each struct, so a discard can name its
+senders. Since sami.35 a struct leaves that record by a delete as it leaves
+the pending queue, and `ForgetParkedOrigin` deletes the structs of an origin
+it forgets. A Go map keeps the slots of the most entries it has held, so a
+document whose queue reached its cap of structs and was cut to one, by a
+merge that dropped the rest, kept slots for the cap for as long as that one
+struct stayed parked: about 218 KB at a cap of 4,096, which no figure of the
+queue counts.
+
+The record is now dropped once it is empty, and replaced by a map made at
+its size, filled by a copy, once it holds under a quarter of the most it has
+held since it was made. Each rebuild follows more than three deletes for each
+entry it copies. The record of who parked each delete range, one set for each
+sender, which `ForgetParkedOrigin` and its prune cut in place, is replaced by
+a copy at its length under the same rule.
+
 ## v1.55.1-sami.36
 
 This release adds one optional callback to the apply budget. There are no

@@ -805,9 +805,12 @@ type Doc struct {
 	// and parkedDsBy, kept only while it is on, the origin of the apply that
 	// parked each struct the pending queue holds, and the delete ranges the
 	// applies of each origin parked, pruned to what the pending deletes hold
-	// (recordParkedOrigins); parkedDsByRanges counts parkedDsBy's ranges.
+	// (recordParkedOrigins); parkedByPeak is the most entries parkedBy has
+	// held since it was made (shrinkParkedBy), and parkedDsByRanges counts
+	// parkedDsBy's ranges.
 	discardRefusedDrain bool
 	parkedBy            map[*Item]any
+	parkedByPeak        int
 	parkedDsBy          []parkedDeletesBy
 	parkedDsByRanges    int
 

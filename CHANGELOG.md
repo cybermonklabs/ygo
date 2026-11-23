@@ -21,6 +21,25 @@ and a server that does not set it behaves exactly as before.
   still be taking a large frame when their session is revoked can set a
   longer one so the code reaches them.
 
+## [1.55.1-sami.38] — 2026-11-23
+
+Fixes the memory one record of a document keeps. No API or wire format
+changes.
+
+### Fixed
+
+- **`crdt`: the record of who parked each struct keeps no slots for its
+  peak** — a document that discards refused drains
+  (`SetDiscardRefusedDrain`) deletes a struct from that record as the struct
+  leaves the pending queue, or as `ForgetParkedOrigin` forgets its origin, and
+  a Go map keeps its slots after deletes. A document whose queue reached its
+  cap of structs and fell to one kept slots for the cap, about 218 KB at a cap
+  of 4,096, for as long as that one struct stayed parked. The record is now
+  dropped once it is empty, and replaced by a map made at its size once it
+  holds under a quarter of the most it has held. The record of who parked
+  each delete range, one set for each sender, is held to the same rule where
+  `ForgetParkedOrigin` and its prune cut sets out of it.
+
 ## [1.55.1-sami.36] — 2026-11-21
 
 Adds `ApplyBudget.Integrated`. No wire format changes.
