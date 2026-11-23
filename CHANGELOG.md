@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.55.1-sami.39] — 2026-11-23
+
+Fixes the memory the pending queue and the pending deletes keep once they
+shrink. No API or wire format changes.
+
+### Fixed
+
+- **`crdt`: the lists and maps of parked content keep no room for their
+  peak** — each list and map of the pending queue and of the pending delete
+  ranges that a merge, a retry or a prune cuts, compacts or empties in place
+  kept the room of the most it had held, which no figure of the document
+  counts, for as long as anything stayed parked. A list is now copied into
+  one made at its length once it holds under a quarter of its array, and a
+  map is replaced by one made at its size once it is empty or holds under a
+  quarter of the most entries it has held. Each check is one comparison.
+  What each kept before, after 4,096 entries fell to one or a few: a
+  sender's range list in the record of who parked each delete range,
+  147,440 bytes; a client's range list in the pending deletes, 90,096 bytes;
+  the queue's list of structs, 49,120 bytes; the queue's cover of a client's
+  parked clocks, about 131 KB. After 1,024 clients' pending deletes applied:
+  the map of those clients, about 82 KB, and the set of clients given a
+  struct since the last retry, about 37 KB. The most clients the map of
+  pending deletes has held now goes with the map through a rollback, a
+  drain taken back or discarded, and a clone.
+
 ## [1.55.1-sami.38] — 2026-11-23
 
 Fixes the memory one record of a document keeps. No API or wire format

@@ -238,6 +238,12 @@ func recordParkedDeletes(d *Doc, ds DeleteSet, origin any) {
 	}
 	by.ds.Merge(ds)
 	for client := range ds.clients {
+		// The merge appends the frame's ranges to the client's and compacts
+		// them in place, so the array keeps the most ranges it held
+		// (DeleteSet.sortAndCompact): a sender whose frames park ranges that
+		// a later frame of its own bridges into one would otherwise hold
+		// that array for as long as the one range stays parked.
+		by.ds.clients[client] = shrunk(by.ds.clients[client])
 		d.parkedDsByRanges += len(by.ds.clients[client])
 	}
 }
@@ -492,7 +498,11 @@ func discardReleased(txn *Transaction, found *pendingUpdate, foundDs parkedDelet
 			droppedRanges += len(drop)
 		}
 	}
+	// kept's map was made with room for every client the drain found, and
+	// holds those with a range left: that room is its peak.
 	s.pendingDs, s.pendingDsRanges, s.pendingDsMoved = kept, keptRanges, foundDs.moved
+	s.pendingDsClientsPeak = len(foundDs.ds.clients)
+	s.shrinkPendingDsClients()
 
 	state := txn.boundedApply
 	state.drainTakenBack = true

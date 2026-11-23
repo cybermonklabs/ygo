@@ -272,22 +272,24 @@ func parkedMissing(txn *Transaction) StateVector {
 
 // parkedDeletesAt is the store's pending deletes as a point of an apply found
 // them: the set, kept by reference (see the top of this file), the count of
-// its ranges (StructStore.pendingDsRanges) and the clients Append gave a
-// struct since the last retry (StructStore.pendingDsMoved), copied, since
-// Append and retryPendingDs write that set in place.
+// its ranges (StructStore.pendingDsRanges), the most clients its map has held
+// (StructStore.pendingDsClientsPeak), which a retry since may have reset with
+// a smaller map, and the clients Append gave a struct since the last retry
+// (StructStore.pendingDsMoved), copied, since Append writes that set in
+// place.
 type parkedDeletesAt struct {
-	ds     DeleteSet
-	ranges int
-	moved  map[ClientID]struct{}
+	ds           DeleteSet
+	ranges, peak int
+	moved        map[ClientID]struct{}
 }
 
 func parkedDeletesOf(s *StructStore) parkedDeletesAt {
-	return parkedDeletesAt{ds: s.pendingDs, ranges: s.pendingDsRanges, moved: maps.Clone(s.pendingDsMoved)}
+	return parkedDeletesAt{ds: s.pendingDs, ranges: s.pendingDsRanges, peak: s.pendingDsClientsPeak, moved: maps.Clone(s.pendingDsMoved)}
 }
 
 // restore puts the store's pending deletes back as p found them.
 func (p parkedDeletesAt) restore(s *StructStore) {
-	s.pendingDs, s.pendingDsRanges, s.pendingDsMoved = p.ds, p.ranges, p.moved
+	s.pendingDs, s.pendingDsRanges, s.pendingDsClientsPeak, s.pendingDsMoved = p.ds, p.ranges, p.peak, p.moved
 }
 
 // ownPendingDs gives the store's pending deletes a map of their own, and
