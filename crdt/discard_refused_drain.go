@@ -33,7 +33,7 @@ func (d *Doc) SetDiscardRefusedDrain(on bool) {
 	defer d.mu.Unlock()
 	d.discardRefusedDrain = on
 	if !on {
-		d.parkedBy, d.parkedDsBy, d.parkedDsByRanges = nil, nil, 0
+		d.parkedBy, d.parkedByPeak, d.parkedDsBy, d.parkedDsByRanges = nil, 0, nil, 0
 	}
 }
 
@@ -57,6 +57,7 @@ func (d *Doc) ForgetParkedOrigin(origin any) {
 			delete(d.parkedBy, it)
 		}
 	}
+	shrinkParkedBy(d)
 	kept := d.parkedDsBy[:0]
 	for _, by := range d.parkedDsBy {
 		if by.origin == origin {
@@ -66,7 +67,7 @@ func (d *Doc) ForgetParkedOrigin(origin any) {
 		kept = append(kept, by)
 	}
 	clear(d.parkedDsBy[len(kept):])
-	d.parkedDsBy = kept
+	d.parkedDsBy = shrinkParkedDeletes(kept)
 }
 
 // DrainDiscardedError is the error of a remote apply whose update stands and
@@ -121,7 +122,8 @@ type parkedDeletesBy struct {
 // the origin of txn for every struct and delete range txn parked and the
 // queue still holds at its commit, and forgets every struct txn took out of
 // the queue for good (transactionParked.gone), so the record of structs
-// holds none the queue does not hold. It forgets the records of delete
+// holds none the queue does not hold, and slots for about four times the
+// structs it holds at most (shrinkParkedBy). It forgets the records of delete
 // ranges the queue no longer holds once they outnumber it: after every
 // commit the record of delete ranges holds at most 2*pendingDsRanges+16
 // ranges, whatever frames parked them (pruneParkedDeletes). The caller holds
@@ -146,6 +148,7 @@ func recordParkedOrigins(d *Doc, txn *Transaction) {
 				}
 				d.parkedBy[it] = txn.Origin
 			}
+			d.parkedByPeak = max(d.parkedByPeak, len(d.parkedBy))
 		}
 		// Only what the apply newly parked is its own. A nil origin is
 		// named to no one (DrainDiscardedError.Senders), so it is not kept.
@@ -161,12 +164,54 @@ func recordParkedOrigins(d *Doc, txn *Transaction) {
 	if s.pending.heldStructs() == 0 {
 		d.parkedBy = nil
 	}
+	shrinkParkedBy(d)
 	switch {
 	case len(s.pendingDs.clients) == 0:
 		d.parkedDsBy, d.parkedDsByRanges = nil, 0
 	case d.parkedDsByRanges > 2*s.pendingDsRanges+16:
 		pruneParkedDeletes(d)
 	}
+}
+
+// shrinkParkedBy drops the record of who parked each struct once it is
+// empty, and replaces it with a map made at its size and filled by a copy
+// once it holds under a quarter of the most it has held since it was made
+// (parkedByPeak). Structs leave the record by delete as they leave the
+// queue (transactionParked.gone) or as their origin is forgotten
+// (ForgetParkedOrigin), and a Go map keeps the slots of the most it held:
+// a queue that reached its cap of structs and fell to one would otherwise
+// keep slots for the cap for as long as that one stays parked. A rebuild
+// copies under a quarter of the peak after more than three quarters of it
+// were deleted, so it costs less than one copy for each delete. The caller
+// holds d.mu.
+func shrinkParkedBy(d *Doc) {
+	switch n := len(d.parkedBy); {
+	case n == 0:
+		d.parkedBy, d.parkedByPeak = nil, 0
+	case n < d.parkedByPeak/4:
+		fresh := make(map[*Item]any, n)
+		for it, by := range d.parkedBy {
+			fresh[it] = by
+		}
+		d.parkedBy, d.parkedByPeak = fresh, n
+	}
+}
+
+// shrinkParkedDeletes is by, the record of who parked each delete range,
+// once sets have been cut out of it in place (ForgetParkedOrigin,
+// pruneParkedDeletes): nil when it is empty, and a copy made at its length
+// when it holds under a quarter of its capacity, since a slice cut in place
+// keeps the array of the most sets it held.
+func shrinkParkedDeletes(by []parkedDeletesBy) []parkedDeletesBy {
+	switch {
+	case len(by) == 0:
+		return nil
+	case len(by) < cap(by)/4:
+		fresh := make([]parkedDeletesBy, len(by))
+		copy(fresh, by)
+		return fresh
+	}
+	return by
 }
 
 // recordParkedDeletes adds ds, the delete ranges an apply of origin newly
@@ -223,6 +268,7 @@ func pruneParkedDeletes(d *Doc) {
 	if n > 2*s.pendingDsRanges+16 {
 		d.parkedDsBy, d.parkedDsByRanges = onePerPendingRange(kept, s.pendingDs)
 	}
+	d.parkedDsBy = shrinkParkedDeletes(d.parkedDsBy)
 }
 
 // heldPart is the part of ds that held also holds: each range of ds cut to
