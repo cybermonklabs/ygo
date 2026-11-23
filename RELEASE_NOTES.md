@@ -18,6 +18,67 @@ that may still be taking a large frame on a slow link can set a longer
 deadline so the code reaches them. The connection stays open, with the peer's
 input dropped, while the frame waits.
 
+## v1.55.1-sami.39
+
+This release fixes the memory the pending queue and the pending deletes keep
+once they shrink. There are no API or wire format changes.
+
+### Parked content keeps no room for its peak
+
+sami.38 replaced the record of who parked each struct with a map made at its
+size once it holds under a quarter of the most it has held. The same rule now
+holds for every list and map of the parked content and of the pending delete
+ranges that is cut, compacted or emptied in place. A Go slice cut in place
+keeps its array, and a Go map keeps the slots of the most entries it has
+held, so each of these kept the room of its peak, which no figure of the
+document counts, for as long as anything stayed parked. A list is now copied
+into one made at its length once it holds under a quarter of its array, and
+a map is replaced by one made at its size once it is empty or holds under a
+quarter of the most entries it has held. Each check is one comparison, and
+each copy follows more than three removals for each entry it copies.
+
+Each container of the parked content and the pending deletes was read for
+this. These changed, with what each kept before the fix:
+
+- The range list of each sender in the record of who parked each delete
+  range, which a frame that bridges that sender's parked ranges compacts in
+  place: 147,440 bytes once 4,096 ranges merged into one.
+- The range list of each client in the pending deletes, compacted the same
+  way: 90,096 bytes in the same case.
+- The map of the clients that have pending deletes, from which a client is
+  deleted as its ranges apply: about 82 KB once 1,024 clients' ranges
+  applied. The most clients it has held is now kept beside it, and goes with
+  the map wherever another map takes its place: a rollback of an apply, a
+  drain of the queue taken back or discarded, and a clone.
+- The set of clients given a struct since the last retry of the pending
+  deletes, which each retry cleared and now drops: about 37 KB once 1,024
+  clients were given one.
+- The list of the pending queue's structs, which a merge that drops structs
+  compacts in place: 49,120 bytes once 4,096 structs were cut to a few.
+- The queue's cover, which holds each client's parked clocks as a list of
+  spans that a struct bridging them merges into one in place. Past 256 spans
+  the list is a tree whose cut nodes waited on a free list: about 131 KB once
+  4,096 spans merged into one. The tree is now built again at its length
+  once it holds under a quarter of its nodes, and the short list follows the
+  list rule.
+
+These were read and left as they are:
+
+- The record of who parked each struct, and the list of the record of who
+  parked each delete range: sami.38 holds them to this rule.
+- The queue's index of structs by client and its ordered list of clients:
+  both are dropped each time the queue's list is compacted, which happens
+  once its emptied slots are as many as the structs it holds, so what they
+  keep for removed entries stays under one slot for each struct held. The
+  lists inside them follow the cover's rule.
+- The clocks the queue waits for: a merge adds to them and nothing cuts them
+  in place; a drain builds them again.
+- The deferred moves: each client's heap is already copied once it holds a
+  quarter of its capacity, and their map rebuilt once it holds half the
+  clients it has held.
+- A transaction's record of what it parked, and the buffers of one apply,
+  merge or split: dropped at the commit or when the call returns.
+
 ## v1.55.1-sami.38
 
 This release fixes the memory one record of a document keeps. There are no

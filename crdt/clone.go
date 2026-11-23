@@ -454,11 +454,13 @@ func (c *docCloner) linkStruct(it, cp *Item) {
 }
 
 // copyPendingDeletes copies the parked delete ranges, their count, and the
-// clients a struct has reached since the last retry.
+// clients a struct has reached since the last retry. The copy's map is made
+// at its size, which is the most clients it has held.
 func (c *docCloner) copyPendingDeletes() {
 	src, dst := c.src.store, c.dst.store
 	dst.pendingDs = copyDeleteSet(src.pendingDs)
 	dst.pendingDsRanges = src.pendingDsRanges
+	dst.pendingDsClientsPeak = len(dst.pendingDs.clients)
 	if src.pendingDsMoved != nil {
 		moved := make(map[ClientID]struct{}, len(src.pendingDsMoved))
 		for client := range src.pendingDsMoved {
