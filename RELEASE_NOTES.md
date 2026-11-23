@@ -61,6 +61,10 @@ update is longer than it is answered 0 without being decoded, under Sync and
 SyncReply alike. A client that keeps rows until such a frame is answered 1
 keeps them. 0, the default, decodes every one, as before.
 
+The test that the relay to the room's other peers does not wait for the
+store now reads the other peer's frames until the relay arrives, within 5 s,
+rather than up to the reply to one ping, which could come first.
+
 ## v1.55.1-sami.25
 
 This release fixes whom the frame that fills a gap is relayed to under
